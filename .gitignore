@@ -1,0 +1,105 @@
+# ─────────────────────────────────────────────────────────────────────────
+#  hitchhikers-guide-to-mass-appraisal — .gitignore
+#
+#  ⚠️ READ THIS BEFORE ADDING A DIRECTORY TO THIS FILE.
+#
+#  Where we need to keep *some* files inside an otherwise-ignored folder,
+#  this file ignores `folder/*` and then re-includes with `!`.
+#
+#  It never ignores bare `folder/`, because **git does not descend into an
+#  excluded directory to re-include a file** — writing `data/` would make
+#  every `!data/...` line below silently dead.
+# ─────────────────────────────────────────────────────────────────────────
+
+
+# ── The environment ──────────────────────────────────────────────────────
+# `uv sync` rebuilds this from pyproject.toml + uv.lock in one command.
+# uv.lock IS committed; .venv/ never is.
+.venv/
+venv/
+env/
+
+
+# ── Python ───────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+
+
+# ── Jupyter ──────────────────────────────────────────────────────────────
+# Notebooks ARE committed with their outputs on purpose (CLAUDE.md §2), so a
+# reader browsing GitHub can see what happens without running anything.
+# Only the checkpoint sidecars are ignored.
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/*
+
+
+# ── Secrets ──────────────────────────────────────────────────────────────
+# .env.example IS committed (it names the variables and holds no values).
+# .env never is.
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+
+
+# ─────────────────────────────────────────────────────────────────────────
+#  DATA — the big one. 🛑
+#
+#  Measured 2026-10-26, the full Lee County roll in data/ is 1.7 GB:
+#
+#      lee_2025par.dbf      1.1 GB     ❌ 11x GitHub's 100 MB file limit
+#      lee_2025par.shp      294 MB     ❌  3x
+#      NAL46F202501.csv     272 MB     ❌  3x
+#      SDF46F202501.csv      18 MB     ✅
+#      lee_2025par.shx      4.3 MB     ✅
+#
+#  GitHub REJECTS any push containing a file over 100 MB. Stage these once
+#  and the blobs are in local history, which then needs surgery to remove.
+#  So the raw county roll stays local, and the repo ships a trimmed sample
+#  that keeps `uv sync` -> open notebook -> run working out of the box.
+#
+#  Provenance and the route to the full 1.7 GB roll go in data/README.md.
+# ─────────────────────────────────────────────────────────────────────────
+data/*
+
+# …but keep the documentation and the committed sample:
+!data/README.md
+!data/sample/
+!data/.gitkeep
+
+
+# ── VS Code ──────────────────────────────────────────────────────────────
+# settings.json and extensions.json are committed on purpose so the repo
+# opens correctly without anyone registering a Jupyter kernel.
+# Note the `.vscode/*` + negation form — see the warning at the top.
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+
+# ── Model / tuning artifacts ─────────────────────────────────────────────
+# Regenerable, and large. Nothing here is a source file.
+*.db-journal
+optuna*.db
+*.pkl
+*.joblib
+*.txt.model
+catboost_info/
+mlruns/
+.cache/
+hf_cache/
+models/
+
+
+# ── OS / editor noise ────────────────────────────────────────────────────
+Thumbs.db
+ehthumbs.db
+desktop.ini
+.DS_Store
+*.swp
+*~
