@@ -140,7 +140,7 @@ def main() -> int:
 
     if not manifest_path.exists():
         print(f"\n!! No {manifest_path.name} found in data/.")
-        print("   Your clone may be incomplete — try `git pull`, or see")
+        print("   Your clone may be incomplete - try `git pull`, or see")
         print("   data/README.md for where to get the roll directly.")
         return 1
 
@@ -158,7 +158,7 @@ def main() -> int:
                 freed += target.stat().st_size
                 target.unlink()
                 print(f"  deleted {name}")
-        print(f"\nFreed {mb(freed):,.1f} MB. The .gz archives are untouched —")
+        print(f"\nFreed {mb(freed):,.1f} MB. The .gz archives are untouched -")
         print("re-run this script without --clean to get the data back.")
         return 0
 
@@ -181,7 +181,7 @@ def main() -> int:
                 continue
             print(f"  {WARN}{name} exists but is the wrong size "
                   f"({mb(target.stat().st_size):,.1f} MB, expected "
-                  f"{mb(info['raw_bytes']):,.1f} MB) — will re-extract")
+                  f"{mb(info['raw_bytes']):,.1f} MB) - will re-extract")
         todo.append(name)
 
     if problems:
@@ -250,10 +250,10 @@ def main() -> int:
         if not args.skip_verify:
             digest = sha256(tmp)
             if digest != info["raw_sha256"]:
-                print("        FAILED checksum — the extracted file does not "
+                print("        FAILED checksum - the extracted file does not "
                       "match the manifest.")
-                print(f"        expected {info['raw_sha256'][:16]}…")
-                print(f"        got      {digest[:16]}…")
+                print(f"        expected {info['raw_sha256'][:16]}...")
+                print(f"        got      {digest[:16]}...")
                 tmp.unlink(missing_ok=True)
                 return 1
             note = "verified"
@@ -261,7 +261,7 @@ def main() -> int:
             note = "size ok (checksum skipped)"
 
         tmp.replace(target)
-        print(f"        done in {time.perf_counter()-t0:.1f}s — {note}")
+        print(f"        done in {time.perf_counter()-t0:.1f}s {DASH} {note}")
 
     print(f"\n{'=' * 74}")
     print(f" {TICK} All set in {time.perf_counter()-t_all:.1f}s. "

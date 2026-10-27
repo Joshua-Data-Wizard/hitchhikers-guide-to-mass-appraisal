@@ -34,6 +34,23 @@ uv run jupyter lab                            # 3. open notebooks/ and go
 
 That's it. Three commands.
 
+### 🪟 One thing to do first, if you're on Windows
+
+```bash
+git config --global core.longpaths true
+```
+
+Windows enforces a 260-character path limit unless told otherwise, and a Python
+environment nests deeply — the longest path this project creates is **281
+characters**. It generally works anyway, because `uv` sidesteps the limit. But
+if your Documents folder sits under a long OneDrive organisation name (say
+`OneDrive - Lee County Property Appraiser`), that one command removes a whole
+class of baffling "file not found" and `$GIT_DIR too big` errors before they
+happen.
+
+**Also: clone somewhere reasonably shallow.** `C:\Users\you\GitHub\` is ideal.
+A folder six levels deep inside another project is asking for trouble.
+
 ### Why step 2?
 
 The tax roll is about **1.7 GB**, and GitHub refuses any file over 100 MB — the

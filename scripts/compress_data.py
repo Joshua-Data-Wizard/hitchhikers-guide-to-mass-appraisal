@@ -178,7 +178,7 @@ def main() -> int:
 
         print(f"{name:<26}{mb(raw_size):>10,.1f}MB{mb(gz_size):>10,.1f}MB"
               f"{raw_size/gz_size:>7.1f}x   {flag}")
-        print(f"{'':<26}compressed in {elapsed:.1f}s, checksumming…", flush=True)
+        print(f"{'':<26}compressed in {elapsed:.1f}s, checksumming...", flush=True)
 
         manifest["files"][name] = {
             "archive": name + ".gz",
