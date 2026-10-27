@@ -60,17 +60,43 @@ dist/
 #
 #  GitHub REJECTS any push containing a file over 100 MB. Stage these once
 #  and the blobs are in local history, which then needs surgery to remove.
-#  So the raw county roll stays local, and the repo ships a trimmed sample
-#  that keeps `uv sync` -> open notebook -> run working out of the box.
 #
-#  Provenance and the route to the full 1.7 GB roll go in data/README.md.
+#  So the EXTRACTED files are ignored, and the repo ships GZIPPED archives
+#  instead — every one of them under 100 MB:
+#
+#      NAL46F202501.csv.gz     47 MB     (5.8x)
+#      SDF46F202501.csv.gz      3 MB     (5.6x)
+#      lee_2025par.dbf.gz      64 MB    (16.9x)
+#      lee_2025par.shp.gz      83 MB     (3.5x)  <-- the tight one
+#      lee_2025par.shx.gz       2 MB     (2.3x)
+#                            ───────
+#                             ~199 MB committed, 1.7 GB on disk after extract
+#
+#  A reader runs `uv run python scripts/extract_data.py` once, which writes
+#  the raw files below — and those are ignored, so they can never be
+#  committed by accident.
+#
+#  Provenance and the Lee County permission are in data/README.md.
 # ─────────────────────────────────────────────────────────────────────────
 data/*
 
-# …but keep the documentation and the committed sample:
+# …but DO commit the archives, the projection file, and the docs.
+# Note the `data/*` + negation form, not bare `data/` — git never descends
+# into an excluded directory to re-include a file.
+!data/*.gz
+!data/data_manifest.json
+!data/lee_2025par.prj
 !data/README.md
 !data/sample/
 !data/.gitkeep
+
+# Belt and braces: never the extracted heavyweights, even if a rule above
+# is loosened later.
+data/*.csv
+data/*.dbf
+data/*.shp
+data/*.shx
+data/*.partial
 
 
 # ── VS Code ──────────────────────────────────────────────────────────────

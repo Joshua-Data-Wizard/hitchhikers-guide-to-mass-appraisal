@@ -1,0 +1,45 @@
+{
+  "dataset": "Lee County, Florida - 2025 certified tax roll",
+  "source_epsg": 2237,
+  "note": "Unpack with: uv run python scripts/extract_data.py",
+  "committed_plain": [
+    "lee_2025par.prj"
+  ],
+  "files": {
+    "NAL46F202501.csv": {
+      "archive": "NAL46F202501.csv.gz",
+      "raw_bytes": 284980140,
+      "archive_bytes": 49245321,
+      "raw_sha256": "0e9c816deb866cc888a61ceadea4a0194cb2aba1fac3311ccfbda607124abea9",
+      "archive_sha256": "fb667b5791dbe30465f569e5d564e4db6600815f2c1059bd27466253314d64a2"
+    },
+    "SDF46F202501.csv": {
+      "archive": "SDF46F202501.csv.gz",
+      "raw_bytes": 18522839,
+      "archive_bytes": 3297259,
+      "raw_sha256": "3a590dbc13c320bef09d3eec049c7c0656db2c2fc7ce84038fa7fd1748193211",
+      "archive_sha256": "189e05d9f39e4d835bfa247b1049452f5051746dc073f410278daadde95ac984"
+    },
+    "lee_2025par.shp": {
+      "archive": "lee_2025par.shp.gz",
+      "raw_bytes": 307265048,
+      "archive_bytes": 87460316,
+      "raw_sha256": "4b375ba2f07dfac5c68e36e8f47249cf8234d498c4c4cef2977532ab76321279",
+      "archive_sha256": "d670fd17fdf8e3852c45899be299c1aaf540c5f04f81202148928c6fec843ad6"
+    },
+    "lee_2025par.shx": {
+      "archive": "lee_2025par.shx.gz",
+      "raw_bytes": 4473228,
+      "archive_bytes": 2042990,
+      "raw_sha256": "0590217bcddf1d891ff264a999b5c5a7a205ab30cf77d7ad61a36b9af1c1fc26",
+      "archive_sha256": "ecdd050a5f6f1ddbdbf7121dfdccada0f04ae64bb0f6ee60fe737705c4e58f19"
+    },
+    "lee_2025par.dbf": {
+      "archive": "lee_2025par.dbf.gz",
+      "raw_bytes": 1136737463,
+      "archive_bytes": 67122204,
+      "raw_sha256": "7ab9c562f4cc35a3de5247547f1d6afa3e1522d064ef45a7b01ac9f67abf75a9",
+      "archive_sha256": "e09494e0a2c1c3fc9427cc0cde786d3c59fdd577930c4f0062b3cea3df145e3b"
+    }
+  }
+}
