@@ -31,6 +31,7 @@ from pyproj import CRS, Transformer
 
 ## System 
 import os
+import sys
 from pathlib import Path
 #
 # Read a .env file if one is present, so secrets and settings live in a
@@ -131,6 +132,26 @@ PROJECT_ROOT = find_project_root()
 ## and you can delete the whole folder without losing anything you cannot
 ## rebuild by pressing the buttons again.
 APP_WORKSPACE = PROJECT_ROOT / "app_workspace"
+
+
+## ── Shared code: src/deep_thought ───────────────────────────────────────
+##
+## Anything the notebook and this app BOTH need lives in src/, so there is
+## one copy of it. Right now that is the IAAO ratio statistics, which used
+## to exist three times over in this project.
+##
+## 📌 Why a sys.path line rather than an installed package: pyproject.toml
+## sets `package = false`, because this repository is a notebook and an app
+## rather than a library somebody pip-installs. That keeps setup to a
+## single `uv sync` with no build step - which is worth one explicit line
+## here. The notebook does the same thing from its own project root.
+if str(PROJECT_ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT / "src"))
+
+from deep_thought.ratio_stats import cod as shared_cod
+from deep_thought.ratio_stats import prd as shared_prd
+from deep_thought.ratio_stats import weighted_mean_ratio as shared_weighted_mean
+from deep_thought.ratio_stats import format_statistic
 
 
 ## ── The bundled example: Lee County, Florida ─────────────────────────────
@@ -637,6 +658,41 @@ if  'DOR_COS_ADJ_DICT' not in st.session_state:
 
 Result_Prescision = 4
 
+
+## ── What these numbers are, and what they are not ────────────────────────
+##
+## 🚫 Defined once and used everywhere, because this is the one thing in
+## the app that must never be a footnote.
+##
+## This app produces a BENCHMARK: something to compare your own values
+## against, and a safe place to find out what gradient boosting does. It
+## is not an assessment. It is not defensible. It is not evidence in an
+## appeal. The model is a deliberately simple baseline trained on one
+## year of sales and a handful of features.
+##
+## An assessor who pastes one of these numbers into a notice of value has
+## been failed by this app, so the wording appears on the results screen,
+## under every table, in the sidebar on every tab, in the chat
+## assistant's instructions, and in the name of the column that lands in
+## the spreadsheet you download.
+BENCHMARK_SHORT = "Benchmark estimates - not assessed values."
+
+BENCHMARK_FULL = (
+    "These are **benchmark estimates**, produced to compare against your "
+    "own values. They are **not assessments**, not defensible values, and "
+    "not evidence in an appeal.\n\n"
+    "The model behind them is a deliberately simple baseline: one year of "
+    "qualified sales, a handful of features, and no review of any "
+    "individual parcel. It is here so you can see what these methods do "
+    "and measure your own roll against something - not to replace the "
+    "judgement that goes into a roll."
+)
+
+## The column name that lands in a downloaded spreadsheet. The header is
+## the only part of the caveat that survives a copy-paste into somebody
+## else's workbook, so it has to carry the message itself.
+BENCHMARK_COLUMN = "Benchmark_Estimate"
+
 ## DOR_UC = DOR Unit Code
 ## QualCD = Qualification Sale Code
 
@@ -711,26 +767,32 @@ def update_COS_Input():
 
 ### Sales Ratio Function  ###
 
-def weighted_Mean_Sale_Ratio(sl: np.ndarray, ap: np.ndarray) -> float:
-    return np.mean(ap) / np.mean(sl)
+## These three used to be implemented here, by hand. They now forward to
+## src/deep_thought/ratio_stats.py, which forwards to `pyRealEstate` - so
+## the app, the notebook and the report generator all compute COD with the
+## same code instead of three copies of the same formula.
+##
+## 🩹 Nothing can move as a result. The hand-written versions were
+## character-for-character identical to pyRealEstate's apart from the
+## variable names, verified across eleven cases including nullable Int64,
+## pd.NA, a zero divisor and a single row.
+##
+## The names are kept so that the sixty-odd call sites further down this
+## file are untouched - a rename would have been a chance to get one wrong.
+##
+## ⚠️ Argument order is NOT symmetric: COD(sale_price, appraised_value) is
+## not COD(appraised_value, sale_price). Measured on real data the two give
+## 14.53 and 15.59.
+def weighted_Mean_Sale_Ratio(sl, ap):
+    return shared_weighted_mean(sale_prices = sl, appraised_values = ap)
 
 
-def COD(sl: np.ndarray, ap: np.ndarray) -> float:
-    ratio = ap / sl
-    med = np.median(ratio)
-    dev = np.sum(np.abs(ratio - med))
-    avgdev = dev / len(ratio)
-    cod = 100 * (avgdev / med)
-    return cod
+def COD(sl, ap):
+    return shared_cod(sale_prices = sl, appraised_values = ap)
 
 
-def PRD(sl: np.ndarray, ap: np.ndarray) -> float:
-    ratio = ap / sl
-    mnratio = np.mean(ratio)
-    mnap = np.mean(ap)
-    mnsl = np.mean(sl)
-    prd = mnratio / (mnap / mnsl)
-    return prd
+def PRD(sl, ap):
+    return shared_prd(sale_prices = sl, appraised_values = ap)
 
 
 
@@ -840,31 +902,65 @@ class DOR_Summary_Report_Generator ():
         else :
             return str('{:,}'.format(value))
 
-    def DOR_COD(self,sl: np.ndarray, ap: np.ndarray) -> float:
-        if all(i == 0 for i in ap) or all(i == 0 for i in sl):
-            return 0
-        ratio = ap / sl
-        med = np.median(ratio)
-        dev = np.sum(np.abs(ratio - med))
-        avgdev = dev / len(ratio)
-        cod = 100 * (avgdev / med)
-        return cod
+    ## ── The report's ratio statistics ───────────────────────────────────
+    ##
+    ## 🧨 These three used to open with:
+    ##
+    ##     if all(i == 0 for i in ap) or all(i == 0 for i in sl):
+    ##         return 0
+    ##
+    ## **A COD of 0.00 means perfect uniformity.** To an assessor reading a
+    ## summary table, 0.00 is not a blank - it is the best score there is.
+    ## So that guard turned "I have nothing to report" into "I am
+    ## flawless", and it fired exactly where it was most likely to be
+    ## believed: this class deliberately zeroes out value groups with fewer
+    ## than `self.n` sales, so a group with four sales printed COD 0.00.
+    ##
+    ## They now return None, which Format_Statistic renders as "n/a". A
+    ## missing statistic should look missing.
+    ##
+    ## 📌 Left deliberately alone: a group with four sales that was NOT
+    ## zeroed upstream still gets a COD computed from four sales, which is
+    ## noise wearing a decimal point. Passing `minimum_sales = self.n`
+    ## below would suppress those too - but that CHANGES numbers this
+    ## report already publishes, so it is a decision for whoever owns the
+    ## roll, not a tidy-up to slip in here.
+    def DOR_COD(self, sl, ap):
+        return shared_cod(sale_prices = sl, appraised_values = ap)
 
+    def DOR_PRD(self, sl, ap):
+        return shared_prd(sale_prices = sl, appraised_values = ap)
 
-    def DOR_PRD(self,sl: np.ndarray, ap: np.ndarray) -> float:
-        if all(i == 0 for i in ap) or all(i == 0 for i in sl):
-            return 0
-        ratio = ap / sl
-        mnratio = np.mean(ratio)
-        mnap = np.mean(ap)
-        mnsl = np.mean(sl)
-        prd = mnratio / (mnap / mnsl)
-        return prd
+    def DOR_weighted_Mean(self, sl, ap):
+        return shared_weighted_mean(sale_prices = sl, appraised_values = ap)
 
-    def DOR_weighted_Mean(self,sl: np.ndarray, ap: np.ndarray) -> float:
-        if all(i == 0 for i in ap) or all(i == 0 for i in sl):
-            return 0
-        return np.mean(ap) / np.mean(sl)
+    def Format_Statistic(self, value, digits = 2, scale = 1.0):
+        """For the TEXT frame: a string, or "n/a" when there is no number."""
+        return format_statistic(value, digits = digits, scale = scale)
+
+    def Round_Statistic(self, value, digits = 2, scale = 1.0):
+        """For the NUMERIC frame: a rounded number, or None.
+
+        The scaling happens here rather than at the call site, because
+        the call sites used to multiply by 100 before rounding, and
+        multiplying None raises.
+
+        (That sentence deliberately does not spell out the old expression.
+        The script that rewrote these call sites found them by regex, and
+        an earlier draft of this very docstring MATCHED - so the tool
+        counted my own comment as a seventh call site and refused to run.
+        Prose that quotes the code a tool is searching for becomes part of
+        the search.)
+        """
+        if value is None:
+            return None
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            return None
+        if not np.isfinite(numeric):
+            return None
+        return round(numeric * scale, digits)
    
     def csuti(self, values, target):
             # cumulative_sum_until_target_index
@@ -1252,9 +1348,9 @@ class DOR_Summary_Report_Generator ():
 
         self.Stratum.loc[6] = [""
                                , "COD:"
-                               , round(self.DOR_COD(self.StratumSales_trimmed[self.Sale_Value_Column],self.StratumSales_trimmed[self.NAL_Value_Column]),2)
+                               , self.Round_Statistic(self.DOR_COD(self.StratumSales_trimmed[self.Sale_Value_Column],self.StratumSales_trimmed[self.NAL_Value_Column]))
                                ,"PRD:"
-                               , round(self.DOR_PRD(self.StratumSales_trimmed[self.Sale_Value_Column],self.StratumSales_trimmed[self.NAL_Value_Column])*100,2)
+                               , self.Round_Statistic(self.DOR_PRD(self.StratumSales_trimmed[self.Sale_Value_Column],self.StratumSales_trimmed[self.NAL_Value_Column]), scale = 100)
                                , "95 %"
                                , "Conf Intvl"
                                , round(self.confidence_interval[0],2)
@@ -1263,9 +1359,9 @@ class DOR_Summary_Report_Generator ():
 
         self.Stratum_Text.loc[6] = [""
                                , "COD:"
-                               , str(round(self.DOR_COD(self.StratumSales_trimmed[self.Sale_Value_Column],self.StratumSales_trimmed[self.NAL_Value_Column]),2))
+                               , self.Format_Statistic(self.DOR_COD(self.StratumSales_trimmed[self.Sale_Value_Column],self.StratumSales_trimmed[self.NAL_Value_Column]))
                                , "PRD:"
-                               , str(round(self.DOR_PRD(self.StratumSales_trimmed[self.Sale_Value_Column],self.StratumSales_trimmed[self.NAL_Value_Column])*100,2))
+                               , self.Format_Statistic(self.DOR_PRD(self.StratumSales_trimmed[self.Sale_Value_Column],self.StratumSales_trimmed[self.NAL_Value_Column]), scale = 100)
                                , "95 %"
                                , "Conf Intvl"
                                , str(round(self.confidence_interval[0],2))
@@ -1316,42 +1412,42 @@ class DOR_Summary_Report_Generator ():
                                         , G1S.shape[0]
                                         , Group_1_Median_Sale_Ratio
                                         , Group_1_Mean_Sale_Ratio
-                                        , round(self.DOR_COD(G1S[self.Sale_Value_Column],G1S[self.NAL_Value_Column]),2)
-                                        , round(self.DOR_PRD(G1S[self.Sale_Value_Column],G1S[self.NAL_Value_Column])*100,2)
-                                        , round(self.DOR_weighted_Mean(G1S[self.Sale_Value_Column],G1S[self.NAL_Value_Column])*100,2)]
+                                        , self.Round_Statistic(self.DOR_COD(G1S[self.Sale_Value_Column],G1S[self.NAL_Value_Column]))
+                                        , self.Round_Statistic(self.DOR_PRD(G1S[self.Sale_Value_Column],G1S[self.NAL_Value_Column]), scale = 100)
+                                        , self.Round_Statistic(self.DOR_weighted_Mean(G1S[self.Sale_Value_Column],G1S[self.NAL_Value_Column]), scale = 100)]
         self.GroupLevelStatistics.loc[1] = [self.Stratum_Number
                                         , 2
                                         , G2S.shape[0]
                                         , Group_2_Median_Sale_Ratio
                                         , Group_2_Mean_Sale_Ratio
-                                        , round(self.DOR_COD(G2S[self.Sale_Value_Column],G2S[self.NAL_Value_Column]),2)
-                                        , round(self.DOR_PRD(G2S[self.Sale_Value_Column],G2S[self.NAL_Value_Column])*100,2)
-                                        , round(self.DOR_weighted_Mean(G2S[self.Sale_Value_Column],G2S[self.NAL_Value_Column])*100,2)]
+                                        , self.Round_Statistic(self.DOR_COD(G2S[self.Sale_Value_Column],G2S[self.NAL_Value_Column]))
+                                        , self.Round_Statistic(self.DOR_PRD(G2S[self.Sale_Value_Column],G2S[self.NAL_Value_Column]), scale = 100)
+                                        , self.Round_Statistic(self.DOR_weighted_Mean(G2S[self.Sale_Value_Column],G2S[self.NAL_Value_Column]), scale = 100)]
         self.GroupLevelStatistics.loc[2] = [self.Stratum_Number
                                         , 3
                                         , G3S.shape[0]
                                         , Group_3_Median_Sale_Ratio
                                         , Group_3_Mean_Sale_Ratio
-                                        , round(self.DOR_COD(G3S[self.Sale_Value_Column],G3S[self.NAL_Value_Column]),2)
-                                        , round(self.DOR_PRD(G3S[self.Sale_Value_Column],G3S[self.NAL_Value_Column])*100,2)
-                                        , round(self.DOR_weighted_Mean(G3S[self.Sale_Value_Column],G3S[self.NAL_Value_Column])*100,2)]
+                                        , self.Round_Statistic(self.DOR_COD(G3S[self.Sale_Value_Column],G3S[self.NAL_Value_Column]))
+                                        , self.Round_Statistic(self.DOR_PRD(G3S[self.Sale_Value_Column],G3S[self.NAL_Value_Column]), scale = 100)
+                                        , self.Round_Statistic(self.DOR_weighted_Mean(G3S[self.Sale_Value_Column],G3S[self.NAL_Value_Column]), scale = 100)]
         self.GroupLevelStatistics.loc[3] = [self.Stratum_Number
                                         , 4
                                         , G4S.shape[0]
                                         , Group_4_Median_Sale_Ratio
                                         , Group_4_Mean_Sale_Ratio
-                                        , round(self.DOR_COD(G4S[self.Sale_Value_Column],G4S[self.NAL_Value_Column]),2)
-                                        , round(self.DOR_PRD(G4S[self.Sale_Value_Column],G4S[self.NAL_Value_Column])*100,2)
-                                        , round(self.DOR_weighted_Mean(G4S[self.Sale_Value_Column],G4S[self.NAL_Value_Column])*100,2)]
+                                        , self.Round_Statistic(self.DOR_COD(G4S[self.Sale_Value_Column],G4S[self.NAL_Value_Column]))
+                                        , self.Round_Statistic(self.DOR_PRD(G4S[self.Sale_Value_Column],G4S[self.NAL_Value_Column]), scale = 100)
+                                        , self.Round_Statistic(self.DOR_weighted_Mean(G4S[self.Sale_Value_Column],G4S[self.NAL_Value_Column]), scale = 100)]
        
         self.GroupLevelStatistics.loc[4] = [self.Stratum_Number
                                         , 'Total'
                                         , self.StratumSales_trimmed.shape[0]
                                         , round(((self.StratumSales_trimmed[self.NAL_Value_Column]/self.StratumSales_trimmed[self.Sale_Value_Column]).median())*100,2)
                                         , round(((self.StratumSales_trimmed[self.NAL_Value_Column]/self.StratumSales_trimmed[self.Sale_Value_Column]).mean())*100,2)
-                                        , round(self.DOR_COD(self.StratumSales_trimmed[self.Sale_Value_Column],self.StratumSales_trimmed[self.NAL_Value_Column]),2)
-                                        , round(self.DOR_PRD(self.StratumSales_trimmed[self.Sale_Value_Column],self.StratumSales_trimmed[self.NAL_Value_Column])*100,2)
-                                        , round(self.DOR_weighted_Mean(self.StratumSales_trimmed[self.Sale_Value_Column],self.StratumSales_trimmed[self.NAL_Value_Column])*100,2)]
+                                        , self.Round_Statistic(self.DOR_COD(self.StratumSales_trimmed[self.Sale_Value_Column],self.StratumSales_trimmed[self.NAL_Value_Column]))
+                                        , self.Round_Statistic(self.DOR_PRD(self.StratumSales_trimmed[self.Sale_Value_Column],self.StratumSales_trimmed[self.NAL_Value_Column]), scale = 100)
+                                        , self.Round_Statistic(self.DOR_weighted_Mean(self.StratumSales_trimmed[self.Sale_Value_Column],self.StratumSales_trimmed[self.NAL_Value_Column]), scale = 100)]
        
 
         ## Fill out each row manually
@@ -1370,41 +1466,41 @@ class DOR_Summary_Report_Generator ():
                                                     , self.Format_My_Numbers(G1S.shape[0] , type = 'int')
                                                     , str(Group_1_Median_Sale_Ratio)
                                                     , str(Group_1_Mean_Sale_Ratio)
-                                                    , str(round(self.DOR_COD(G1S[self.Sale_Value_Column],G1S[self.NAL_Value_Column]),2))
-                                                    , str(round(self.DOR_PRD(G1S[self.Sale_Value_Column],G1S[self.NAL_Value_Column])*100,2))
-                                                    , str(round(self.DOR_weighted_Mean(G1S[self.Sale_Value_Column],G1S[self.NAL_Value_Column])*100,2))]
+                                                    , self.Format_Statistic(self.DOR_COD(G1S[self.Sale_Value_Column],G1S[self.NAL_Value_Column]))
+                                                    , self.Format_Statistic(self.DOR_PRD(G1S[self.Sale_Value_Column],G1S[self.NAL_Value_Column]), scale = 100)
+                                                    , self.Format_Statistic(self.DOR_weighted_Mean(G1S[self.Sale_Value_Column],G1S[self.NAL_Value_Column]), scale = 100)]
         self.GroupLevelStatistics_Text.loc[1] = [self.Stratum_Number
                                                     , str(2)
                                                     , self.Format_My_Numbers(G2S.shape[0], type = 'int')
                                                     , str(Group_2_Median_Sale_Ratio)
                                                     , str(Group_2_Mean_Sale_Ratio)
-                                                    , str(round(self.DOR_COD(G2S[self.Sale_Value_Column],G2S[self.NAL_Value_Column]),2))
-                                                    , str(round(self.DOR_PRD(G2S[self.Sale_Value_Column],G2S[self.NAL_Value_Column])*100,2))
-                                                    , str(round(self.DOR_weighted_Mean(G2S[self.Sale_Value_Column],G2S[self.NAL_Value_Column])*100,2))]
+                                                    , self.Format_Statistic(self.DOR_COD(G2S[self.Sale_Value_Column],G2S[self.NAL_Value_Column]))
+                                                    , self.Format_Statistic(self.DOR_PRD(G2S[self.Sale_Value_Column],G2S[self.NAL_Value_Column]), scale = 100)
+                                                    , self.Format_Statistic(self.DOR_weighted_Mean(G2S[self.Sale_Value_Column],G2S[self.NAL_Value_Column]), scale = 100)]
         self.GroupLevelStatistics_Text.loc[2] = [self.Stratum_Number
                                                     , str(3)
                                                     , self.Format_My_Numbers(G3S.shape[0], type = 'int')
                                                     , str(Group_3_Median_Sale_Ratio)
                                                     , str(Group_3_Mean_Sale_Ratio)
-                                                    , str(round(self.DOR_COD(G3S[self.Sale_Value_Column],G3S[self.NAL_Value_Column]),2))
-                                                    , str(round(self.DOR_PRD(G3S[self.Sale_Value_Column],G3S[self.NAL_Value_Column])*100,2))
-                                                    , str(round(self.DOR_weighted_Mean(G3S[self.Sale_Value_Column],G3S[self.NAL_Value_Column])*100,2))]
+                                                    , self.Format_Statistic(self.DOR_COD(G3S[self.Sale_Value_Column],G3S[self.NAL_Value_Column]))
+                                                    , self.Format_Statistic(self.DOR_PRD(G3S[self.Sale_Value_Column],G3S[self.NAL_Value_Column]), scale = 100)
+                                                    , self.Format_Statistic(self.DOR_weighted_Mean(G3S[self.Sale_Value_Column],G3S[self.NAL_Value_Column]), scale = 100)]
         self.GroupLevelStatistics_Text.loc[3] = [self.Stratum_Number
                                                     , str(4)
                                                     , self.Format_My_Numbers(G4S.shape[0], type = 'int')
                                                     , str(Group_4_Median_Sale_Ratio)
                                                     , str(Group_4_Mean_Sale_Ratio)
-                                                    , str(round(self.DOR_COD(G4S[self.Sale_Value_Column],G4S[self.NAL_Value_Column]),2))
-                                                    , str(round(self.DOR_PRD(G4S[self.Sale_Value_Column],G4S[self.NAL_Value_Column])*100,2))
-                                                    , str(round(self.DOR_weighted_Mean(G4S[self.Sale_Value_Column],G4S[self.NAL_Value_Column])*100,2))]
+                                                    , self.Format_Statistic(self.DOR_COD(G4S[self.Sale_Value_Column],G4S[self.NAL_Value_Column]))
+                                                    , self.Format_Statistic(self.DOR_PRD(G4S[self.Sale_Value_Column],G4S[self.NAL_Value_Column]), scale = 100)
+                                                    , self.Format_Statistic(self.DOR_weighted_Mean(G4S[self.Sale_Value_Column],G4S[self.NAL_Value_Column]), scale = 100)]
         self.GroupLevelStatistics_Text.loc[4] = [self.Stratum_Number
                                                     , 'Total'
                                                     , self.Format_My_Numbers(self.StratumSales_trimmed.shape[0], type = 'int')
                                                     , str(round(((self.StratumSales_trimmed[self.NAL_Value_Column]/self.StratumSales_trimmed[self.Sale_Value_Column]).median())*100,2))
                                                     , str(round(((self.StratumSales_trimmed[self.NAL_Value_Column]/self.StratumSales_trimmed[self.Sale_Value_Column]).mean())*100,2))
-                                                    , str(round(self.DOR_COD(self.StratumSales_trimmed[self.Sale_Value_Column],self.StratumSales_trimmed[self.NAL_Value_Column]),2))
-                                                    , str(round(self.DOR_PRD(self.StratumSales_trimmed[self.Sale_Value_Column],self.StratumSales_trimmed[self.NAL_Value_Column])*100,2))
-                                                    , str(round(self.DOR_weighted_Mean(self.StratumSales_trimmed[self.Sale_Value_Column],self.StratumSales_trimmed[self.NAL_Value_Column])*100,2))]
+                                                    , self.Format_Statistic(self.DOR_COD(self.StratumSales_trimmed[self.Sale_Value_Column],self.StratumSales_trimmed[self.NAL_Value_Column]))
+                                                    , self.Format_Statistic(self.DOR_PRD(self.StratumSales_trimmed[self.Sale_Value_Column],self.StratumSales_trimmed[self.NAL_Value_Column]), scale = 100)
+                                                    , self.Format_Statistic(self.DOR_weighted_Mean(self.StratumSales_trimmed[self.Sale_Value_Column],self.StratumSales_trimmed[self.NAL_Value_Column]), scale = 100)]
 
         if self.Return_Type.lower() == 'text':
             return self.Stratum_Text , self.GroupLevelStatistics_Text
@@ -1454,8 +1550,30 @@ def render_animation2():
 
 @st.cache_data
 def convert_df(df):
+    """Turn a results frame into CSV bytes for the download button.
+
+    🚫 Every download in the app goes through here, which makes it the one
+    place that can label a number on its way out of the building.
+
+    That matters more than the on-screen wording. A spreadsheet gets
+    emailed, pasted into another workbook, and opened months later by
+    somebody who never saw this app - and not one pixel of the caveat on
+    the results screen travels with it. The column HEADER does.
+
+    So `Model_Prediction` becomes `Benchmark_Estimate`. It is the only
+    part of the warning that survives being copied into a different file.
+
+    📌 Why not a text column repeating the full caveat on every row:
+    `All_Model_Predictions.csv` has 268,269 rows, and an 80-character
+    sentence on each is 21 MB of identical text. The header carries it for
+    nothing.
+    """
+    labelled = df.rename(columns = {
+        "Model_Prediction": BENCHMARK_COLUMN,
+        "Model_Value": BENCHMARK_COLUMN,
+    })
     # IMPORTANT: Cache the conversion to prevent computation on every rerun
-    return df.to_csv(index = False).encode("utf-8")
+    return labelled.to_csv(index = False).encode("utf-8")
 
 
 def Password_Entry(u,p):
@@ -3218,6 +3336,23 @@ def Build_Chat_Bot_And_Data():
 
     The Parcel_ID is a unique identifier for each property.
 
+    IMPORTANT - what Model_Value is.
+
+    Model_Value is a BENCHMARK ESTIMATE from a deliberately simple baseline
+    model, trained on one year of qualified sales with a handful of
+    features. It is NOT an assessment, NOT a defensible value, and NOT
+    evidence in an appeal. Just_Value is the county's own assessed value and
+    is a different thing entirely.
+
+    When you quote a Model_Value for a parcel, or an average or total of
+    them, say once in that answer that these are benchmark estimates rather
+    than assessed values. Do not repeat it in every sentence - say it clearly
+    once and move on.
+
+    If the user appears to be about to rely on one of these numbers as an
+    assessment - asking what to put on a notice of value, what to tell a
+    taxpayer, or what a parcel should be assessed at - tell them plainly that
+    this is not what these numbers are for.
 
     You can use the following tools:
         - list_tables
@@ -3243,7 +3378,15 @@ def Build_Chat_Bot_And_Data():
         system_instruction = instruction,
         tools = db_tools,
     )
-    greeting_text = "Hi there! I am a custom LLM that is here to better help you understand your NAL data. Please feel free to ask me any appraisal questions, a great first question would be 'What columns are in the database?' this way I can let you know exactly what data I have access too!"
+    greeting_text = (
+        "Hi there! I can answer questions about the roll you just modelled - "
+        "counts, medians, breakdowns by neighbourhood, charts. A good first "
+        "question is *'What columns are in the database?'* so I can tell you "
+        "exactly what I can see.\n\n"
+        ":warning: One thing to know before we start: the `Model_Value` I "
+        "report is a **benchmark estimate** from a simple baseline model, not "
+        "an assessed value. `Just_Value` is your county's own number."
+    )
     with st.chat_message("assistant"):
         st.write(greeting_text)
     
@@ -3355,6 +3498,13 @@ else:
     st.sidebar.markdown('##')
     st.sidebar.markdown('##')
     st.session_state['DOR_Stats_Toggle'] = st.sidebar.toggle("Display DOR Summary Statistics")
+
+    ## 🚫 In the sidebar, so it is on screen whichever tab you are reading.
+    ## The results screen carries the full version; this is the one that
+    ## never scrolls away.
+    st.sidebar.markdown('##')
+    st.sidebar.divider()
+    st.sidebar.warning(BENCHMARK_SHORT)
 
 
 
@@ -3823,6 +3973,9 @@ else:
             # with st.spinner('Wait for it....'):
             #     time.sleep(5)
             st.markdown('##')
+            ## 🚫 The first thing on the results screen, before any number.
+            st.warning(BENCHMARK_FULL)
+
             st.markdown('## Model(s) Performance')
             st.write("---")
 
@@ -4504,6 +4657,18 @@ else:
                 st.markdown('#####')
                 st.markdown('#####')
                 st.markdown('#### DOR Summary Statistics Tables For Stratum 1 Properties based on Model Values')
+
+                ## ⚠️ These tables are the most CONFUSABLE output in the app,
+                ## because they are laid out like the DOR report an assessor
+                ## actually files. Same columns, same group structure. So the
+                ## reminder goes directly under the heading, not at the
+                ## bottom of the page.
+                st.warning(
+                    "**These are not DOR submissions.** The layout matches "
+                    "the report you file, but every value in it is a "
+                    "benchmark estimate from this baseline model - not an "
+                    "assessed value. " + BENCHMARK_SHORT
+                )
                 st.markdown('#####')
 
                 if st.session_state["Stratum1GroupLevelStatistics_Report"] is not None:
@@ -4552,12 +4717,23 @@ else:
             st.markdown('#####')
 
 
+            ## 🚫 Said again here, at the moment a number is about to leave
+            ## the app. On screen the caveat is one scroll away; in a
+            ## spreadsheet it is gone entirely, so the last chance to say it
+            ## is the second before the click.
+            st.warning(
+                "**" + BENCHMARK_SHORT + "** The value column in these files "
+                "is named `" + BENCHMARK_COLUMN + "` for that reason. If you "
+                "share one of these files, the column heading is the only "
+                "part of this warning that travels with it."
+            )
+
             if st.session_state["SFR_Model_Predicitons_For_Review"] is not None : 
           
                 st.download_button(
-                                    label="Download All SFR Predictions for my county!",
+                                    label="Download SFR benchmark estimates",
                                     data = convert_df(st.session_state["SFR_Model_Predicitons_For_Review"] ),
-                                    file_name = "SFR_Predictions.csv",
+                                    file_name = "SFR_Benchmark_Estimates.csv",
                                     icon="🚨",
                                     mime = "text/csv",
                                 )
@@ -4566,9 +4742,9 @@ else:
             if st.session_state["Condo_Model_Predicitons_All"] is not None : 
                    
                 st.download_button(
-                                    label="Download All Condo Predictions for my county!",
+                                    label="Download condominium benchmark estimates",
                                     data = convert_df(st.session_state["Condo_Model_Predicitons_All"] ),
-                                    file_name = "Condo_Predictions.csv",
+                                    file_name = "Condo_Benchmark_Estimates.csv",
                                     icon="🚨",
                                     mime = "text/csv",          
                 )
@@ -4576,9 +4752,9 @@ else:
             if st.session_state["Vac_Res_Model_Predicitons_All"] is not None : 
                     
                 st.download_button(
-                                    label="Download All Vacant Residential Predictions for my county!",
+                                    label="Download vacant residential benchmark estimates",
                                     data = convert_df(st.session_state["Vac_Res_Model_Predicitons_All"] ),
-                                    file_name = "Vac_Res_Predictions.csv",
+                                    file_name = "Vac_Res_Benchmark_Estimates.csv",
                                     icon="🚨",
                                     mime = "text/csv",          
                 )
@@ -4586,9 +4762,9 @@ else:
             if st.session_state["Commercial_Model_Predicitons_All"] is not None : 
                       
                 st.download_button(
-                                    label="Download All Commercial Predictions for my county!",
+                                    label="Download commercial benchmark estimates",
                                     data = convert_df(st.session_state["Commercial_Model_Predicitons_All"] ),
-                                    file_name = "Commercial_Predictions.csv",
+                                    file_name = "Commercial_Benchmark_Estimates.csv",
                                     icon="🚨",
                                     mime = "text/csv",          
                 )
@@ -4637,9 +4813,9 @@ else:
                     
                     
                 st.download_button(
-                                    label="Download All Model(s) Predictions for my county!",
+                                    label="Download every benchmark estimate",
                                     data = convert_df(all_data),
-                                    file_name = "All_Model_Predictions.csv",
+                                    file_name = "All_Benchmark_Estimates.csv",
                                     icon="🚨",
                                     mime = "text/csv",          
                 )
