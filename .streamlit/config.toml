@@ -1,2 +1,15 @@
 [server]
 maxUploadSize = 500
+
+## ⚠️ Turn Streamlit's file watcher OFF.
+##
+## By default Streamlit walks every imported module looking for changes so
+## it can offer "Source file changed - Rerun". That is a nice thing in a
+## small script and a real problem here: the optional `slm` extra pulls in
+## `torch` and `transformers`, which are thousands of files, and the
+## watcher traverses them on every rerun. On a OneDrive-synced folder -
+## which is where this repo lands for most readers - it is slower still.
+##
+## Nothing is lost by turning it off. A reader editing the app restarts it
+## with the same `uv run streamlit run` command they already used.
+fileWatcherType = "none"

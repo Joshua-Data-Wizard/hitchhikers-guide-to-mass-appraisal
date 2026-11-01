@@ -71,6 +71,50 @@ the only version an assessor's office is permitted to use:
 uv sync --extra slm      # adds PyTorch w/ CUDA 13 (~3 GB) + transformers
 ```
 
+⚠️ **A plain `uv sync` afterwards prunes that extra straight back out, silently.**
+Re-run it with `--extra slm`; it is quick, because the wheels are cached.
+
+Then fetch the model **once** — roughly **9.3 GB**, and `uv sync` does not do it
+for you:
+
+```bash
+uv run python -c "from huggingface_hub import snapshot_download; snapshot_download('Qwen/Qwen3.5-4B')"
+```
+
+Pick a different model by setting `LOCAL_MODEL` in your `.env` — see
+`.env.example`.
+
+In the app, the chat section now has a **Hosted / Local** choice. Local needs no
+API key, no account and no internet.
+
+#### What it costs to run, measured
+
+On an RTX 3080 with the Lee County roll loaded:
+
+| | memory | speed |
+|---|---|---|
+| **4-bit — the default** | **3.07 GiB VRAM** | ~15 tokens/sec |
+| bf16 | 8.57 GiB VRAM | ~19 tokens/sec |
+| no GPU, on the processor | 16.46 GiB **RAM** | ~2.6 tokens/sec |
+
+It is **quantised by default, not as a fallback.** bf16 needs 8.57 GiB, which
+does not fit the 8 GB card this project designs for, and costs only about 20% of
+the speed. With no GPU it still works — expect about a minute per answer.
+
+#### 🧰 What it can and cannot do
+
+**This is a concept, and its tool belt is short.** Tested against the real Lee
+County roll with every number checked against the same figure computed in
+pandas, the local model reliably handles **counts, filters, group-bys, means,
+medians, quartiles, histograms** and **explaining the statistics**.
+
+🛑 **It cannot compute a ratio study statistic.** COD, PRD and the median sales
+ratio all need sale prices, and the chat database holds `Just_Value` and
+`Model_Value` only — so that is a missing *column*, not just a missing function.
+Asked for one, it says so and points you at the **Results** tab. **Check its
+figures on anything more complicated than the list above.** As tools are added,
+that warning gets shorter.
+
 This is a separate step on purpose. Gradient boosting — the actual subject of
 this repository — is a CPU job and needs none of it.
 

@@ -72,6 +72,10 @@ from sklearn.metrics import mean_absolute_error
 # Local Database 
 import sqlite3
 
+## Used by the local model's tool-call parser further down.
+import re
+import json
+
 ## The hosted language model behind the chat assistant at the end of the
 ## app. One variable is needed - ANTHROPIC_API_KEY - and .env.example
 ## says where to get it. A reader who never opens the chat section never
@@ -290,6 +294,27 @@ DEFAULT_CHAT_MODEL_LABEL = next(
     (label for label, model in CHAT_MODELS.items() if model == DEFAULT_CHAT_MODEL),
     list(CHAT_MODELS.keys())[0],
 )
+
+
+## ── Two ways to run the assistant ─────────────────────────────────────
+##
+## Hosted sends your questions, and the rows the tools return, to
+## Anthropic. Local runs a small model on this computer and sends nothing
+## anywhere. For many assessor offices Local is the only option their IT
+## department will approve, which is exactly why it is here.
+##
+## 📌 Local is not a lesser version of the same thing - it is a smaller
+## model with a SHORTER TOOL BELT, and the app says so on screen rather
+## than letting somebody find out from a wrong number.
+CHAT_ENGINE_HOSTED = "Hosted  -  Claude, over the internet"
+CHAT_ENGINE_LOCAL  = "Local  -  a small model on this computer"
+CHAT_ENGINES = [CHAT_ENGINE_HOSTED, CHAT_ENGINE_LOCAL]
+DEFAULT_CHAT_ENGINE = CHAT_ENGINE_HOSTED
+
+
+def using_local_engine():
+    """True when the person has chosen to run the model on this machine."""
+    return st.session_state.get("Chat_Engine_Selected") == CHAT_ENGINE_LOCAL
 
 ## IF RUNNING LATEST WINDOWS VERSION OF STREAMLIT, UNCOMMENT THE CODE BELOW
 #os.environ['LOKY_MAX_CPU_COUNT'] = '10'
@@ -532,6 +557,14 @@ if  "Provided_Anthropic_Key" not in st.session_state:
 ## warn about this, so it failed quietly. Seeding a real label is the fix.
 if "Chat_Model_Selected" not in st.session_state:
         st.session_state['Chat_Model_Selected'] = DEFAULT_CHAT_MODEL_LABEL
+
+## 🚨 Seeded here, and the radio further down passes NO `index =`. A
+## Streamlit widget given BOTH a default and a pre-seeded session_state
+## entry under its key silently throws its own default away - which once
+## discarded the chat model a person had picked, on every run. One source
+## of truth, and this is it. FINDINGS 32.
+if "Chat_Engine_Selected" not in st.session_state:
+        st.session_state['Chat_Engine_Selected'] = DEFAULT_CHAT_ENGINE
 
 if "Chat_Bot_Data_Base" not in st.session_state:
         st.session_state['Chat_Bot_Data_Base'] = None
@@ -3301,6 +3334,493 @@ class NAL_Chat_Session:
         return answer
 
 
+## ══════════════════════════════════════════════════════════════════════
+##  THE LOCAL TWIN - the same assistant, on your own machine
+## ══════════════════════════════════════════════════════════════════════
+##
+## Everything above talks to Anthropic over the internet. Everything below
+## does the same job with a model running on this computer, so that no
+## parcel data leaves the building. For a lot of assessor offices that is
+## the only version IT will approve, which is the whole reason it exists.
+##
+## ⚠️ It is a SMALLER model with a SHORTER tool belt, and it shows. See
+## LOCAL_TOOL_BELT_LIMITS below for what it cannot do and why.
+
+## The model is read from the environment so a reader can try another one
+## without editing code. It is NOT downloaded by `uv sync` - see README.
+LOCAL_MODEL_ID = (os.environ.get("LOCAL_MODEL") or "").strip() \
+                 or "Qwen/Qwen3.5-4B"
+
+
+def local_model_facts(config):
+    """Everything the app wants to know about a local model, in one place.
+
+    🧨 This helper exists because of one specific trap. Qwen3.5-4B is a
+    MULTIMODAL model, so its text settings do not live on the config - they
+    live on `config.text_config`, and
+
+        config.vocab_size
+
+    raises `AttributeError`, it does not return a number. Ask it through
+    here and a different model later cannot break the app.
+
+    📌 And note what is NOT here: a hardcoded vocabulary size. Writing
+    "248,320" into the app would be a number that is correct until the
+    first person changes LOCAL_MODEL, and then it is a lie that no
+    test catches.
+    """
+    text = getattr(config, "text_config", config)
+    return {
+        "vocab_size"  : getattr(text, "vocab_size", None),
+        "layers"      : getattr(text, "num_hidden_layers", None),
+        "hidden_size" : getattr(text, "hidden_size", None),
+        "context"     : getattr(text, "max_position_embeddings", None),
+        "multimodal"  : hasattr(config, "vision_config"),
+    }
+
+
+@st.cache_resource(show_spinner = False)
+def load_local_model(model_id = LOCAL_MODEL_ID, prefer_4bit = True):
+    """Load the local model once and keep it. Returns (tokenizer, model, note).
+
+    ⚠️ `transformers` and `torch` are imported INSIDE this function on
+    purpose. They are the optional `slm` extra, roughly 3 GB, and the
+    valuation half of this app needs none of it. A module-level import
+    here would mean a reader who ran a plain `uv sync` could not open the
+    app at all - which is exactly how this app used to be broken, by a
+    `from google import genai` on line 74.
+
+    🔢 Measured on an RTX 3080 (10 GB), Lee County roll loaded:
+
+        4-bit  (the default)   3.07 GiB VRAM    ~15 tokens/sec
+        bf16   (opt-in)        8.57 GiB VRAM    ~19 tokens/sec
+        CPU    (fallback)     16.46 GiB RAM      ~2.6 tokens/sec
+
+    Quantising is the DEFAULT, not a fallback. bf16 needs 8.57 GiB, and
+    CLAUDE.md says design to an 8 GB card - so bf16 simply does not fit the
+    machine we are designing for, while costing only about 20% of the speed.
+    """
+    import torch
+    from transformers import AutoConfig, AutoTokenizer
+
+    ## Resolve from the local cache. A county laptop may be offline, and in
+    ## any case a 9 GB surprise download is not something an app should do
+    ## without saying so - the README covers fetching the model once.
+    config = AutoConfig.from_pretrained(model_id)
+    facts = local_model_facts(config)
+
+    ## ⚠️ Pick the loader class from the config, do not assume.
+    ## Qwen3.5-4B declares `Qwen3_5ForConditionalGeneration`, the
+    ## image-and-text class. We want the TEXT-only class, which skips 297
+    ## vision tensors we would never use. `AutoModelForCausalLM` resolves
+    ## to it, and costs 3.07 GiB against 3.15 for the full multimodal load.
+    from transformers import AutoModelForCausalLM
+
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
+
+    kwargs, note = {}, ""
+    if torch.cuda.is_available():
+        free_bytes, total_bytes = torch.cuda.mem_get_info()
+        free_gib = free_bytes / 2 ** 30
+        if prefer_4bit:
+            from transformers import BitsAndBytesConfig
+            kwargs["quantization_config"] = BitsAndBytesConfig(
+                load_in_4bit             = True,
+                bnb_4bit_quant_type      = "nf4",
+                bnb_4bit_use_double_quant = True,
+                bnb_4bit_compute_dtype   = torch.bfloat16,
+            )
+            note = ("Running on your %s, quantised to 4-bit (about 3 GB of "
+                    "video memory)." % torch.cuda.get_device_name(0))
+        else:
+            kwargs["dtype"] = torch.bfloat16
+            note = ("Running on your %s at full bf16 precision (about 8.6 GB "
+                    "of video memory)." % torch.cuda.get_device_name(0))
+        kwargs["device_map"] = "auto"
+        print(" - Local model: GPU available, %.2f GiB free of %.2f"
+              % (free_gib, total_bytes / 2 ** 30))
+    else:
+        ## 🐌 No GPU. This WORKS and it is SLOW - measured at 2.6 tokens a
+        ## second, so a short answer takes most of a minute before any tool
+        ## calls. It also wants about 16 GB of RAM. The app says so on
+        ## screen rather than just feeling broken.
+        kwargs["dtype"] = torch.float32
+        kwargs["device_map"] = "cpu"
+        note = ("No GPU found, so this is running on your processor. It "
+                "works, but expect roughly a minute per answer and about "
+                "16 GB of memory.")
+        print(" - Local model: no CUDA device, falling back to CPU")
+
+    print(" - Local model: loading %s ..." % model_id)
+    model = AutoModelForCausalLM.from_pretrained(model_id, **kwargs)
+    model.eval()
+
+    ## Report the shape of the model from the config, never from a literal.
+    print(" - Local model ready: %s layers, hidden %s, context %s, vocab %s"
+          % (facts["layers"], facts["hidden_size"], facts["context"],
+             facts["vocab_size"]))
+    return tokenizer, model, note
+
+
+## ── Letting the local model use the app's own five tools ──────────────
+##
+## 📌 The five tools above are decorated with `@beta_tool`, which is part
+## of the Anthropic SDK - so the obvious assumption is that a local model
+## needs its own copy of all five. It does not. `@beta_tool` returns a
+## `BetaFunctionTool` that exposes
+##
+##     .name           the function name
+##     .description    the first line of the docstring
+##     .input_schema   a plain JSON Schema built from the signature
+##     .call({...})    runs the function
+##
+## all of which are ordinary data. Only the DISPATCH LOOP is
+## Anthropic-specific. So both engines share one set of tools, and a tool
+## fixed once is fixed for both.
+def tool_to_local_schema(tool):
+    """One `@beta_tool` function, as a local chat template wants to see it."""
+    return {"type": "function",
+            "function": {"name": tool.name,
+                         "description": tool.description,
+                         "parameters": tool.input_schema}}
+
+
+## ── Reading the model's tool calls ────────────────────────────────────
+##
+## ⚠️ Qwen3.5 does NOT emit JSON tool calls. Qwen2.5 did, which makes this
+## an easy thing to get wrong from memory. The format its chat template
+## asks for is:
+##
+##     <tool_call>
+##     <function=execute_query>
+##     <parameter=sql>
+##     SELECT COUNT(*) FROM Parcel_Data
+##     </parameter>
+##     </function>
+##     </tool_call>
+_LOCAL_CALL_RE = re.compile(
+    r"<tool_call>\s*<function=([^>\s]+)>(.*?)(?:</function>|\Z)", re.DOTALL)
+_LOCAL_PARAM_RE = re.compile(
+    r"<parameter=([^>\s]+)>\n?(.*?)\n?(?:</parameter>|\Z)", re.DOTALL)
+
+## Any shred of tool-call markup. If one of these survives into text we
+## were about to show somebody, what we have is a FRAGMENT, not an answer.
+_LOCAL_STRAY_RE = re.compile(
+    r"</?tool_call>|</?function[=>]|</?parameter[=>]")
+
+
+def parse_local_tool_calls(reply, tools_by_name):
+    """Pull every tool call out of a reply. Returns (calls, remaining_text).
+
+    Parameter values arrive as plain text, so each one is coerced using the
+    tool's OWN JSON Schema. A parameter declared `integer` must not reach
+    the function as the string "5".
+    """
+    calls = []
+    for match in _LOCAL_CALL_RE.finditer(reply):
+        name = match.group(1).strip()
+        tool = tools_by_name.get(name)
+        properties = (tool.input_schema or {}).get("properties", {}) if tool else {}
+
+        arguments = {}
+        for param in _LOCAL_PARAM_RE.finditer(match.group(2)):
+            key, raw = param.group(1).strip(), param.group(2)
+            wanted = (properties.get(key) or {}).get("type", "string")
+            if wanted in ("integer", "number", "boolean", "object", "array"):
+                try:
+                    arguments[key] = json.loads(raw.strip())
+                except Exception:
+                    arguments[key] = raw.strip()
+            else:
+                arguments[key] = raw.strip()
+        calls.append({"name": name, "arguments": arguments})
+
+    return calls, _LOCAL_CALL_RE.sub("", reply).strip()
+
+
+def scrub_tool_markup(text):
+    """Never show tool-call markup to a person."""
+    return _LOCAL_STRAY_RE.sub("", text).strip()
+
+
+class Local_NAL_Chat_Session:
+    """One conversation with a model running on this machine.
+
+    Deliberately the same shape as `NAL_Chat_Session` above: it holds the
+    history and exposes **`send_message(question)`** returning a string,
+    plus `last_tool_calls`. That is the entire contract the rest of the app
+    uses, so the two engines are interchangeable and nothing downstream
+    needs to know which one answered.
+
+    What is different is the loop. The hosted version hands the whole
+    back-and-forth to `tool_runner`. Here we run it ourselves, which is
+    about forty lines and is worth reading once if you want to see what a
+    tool-calling loop actually is:
+
+        generate -> did it ask for a tool? -> run it -> hand back the
+        result -> generate again -> ... -> plain answer
+    """
+
+    ## How many times round that loop before we give up. Six is enough for
+    ## list_tables -> describe_table -> query -> answer with room to spare,
+    ## and it stops a model that keeps retrying a query it cannot fix from
+    ## looping forever while somebody watches a spinner.
+    MAX_TOOL_ROUNDS = 6
+
+    def __init__(self, tokenizer, model, system_instruction, tools,
+                 device_note = ""):
+        self.tokenizer = tokenizer
+        self.model = model
+        self.system_instruction = system_instruction
+        self.tools = tools
+        self.device_note = device_note
+        self.messages = []
+        self.last_tool_calls = []
+
+    def _generate(self, messages, schemas, stop_at_tool_call = True):
+        """One pass of the model over the conversation so far."""
+        import torch
+
+        prompt = self.tokenizer.apply_chat_template(
+            messages,
+            tools = schemas,
+            tokenize = False,
+            add_generation_prompt = True,
+            ## 🤔 Thinking OFF. Qwen3.5 opens a `<think>` block by default
+            ## and will reason for a couple of hundred tokens before
+            ## answering. With the definitions below in the prompt it gets
+            ## these questions right WITHOUT thinking, so the reasoning
+            ## buys nothing here and costs a reader real seconds - more on
+            ## a laptop with no GPU.
+            enable_thinking = False,
+        )
+        inputs = self.tokenizer(prompt, return_tensors = "pt").to(self.model.device)
+        prompt_length = inputs["input_ids"].shape[1]
+
+        generate_kwargs = dict(max_new_tokens = 400, do_sample = False)
+        if stop_at_tool_call:
+            ## Stop as soon as a tool call closes - there is nothing useful
+            ## after it, and generating anyway costs seconds per round.
+            generate_kwargs["stop_strings"] = ["</tool_call>"]
+            generate_kwargs["tokenizer"] = self.tokenizer
+
+        with torch.inference_mode():
+            output = self.model.generate(**inputs, **generate_kwargs)
+        return self.tokenizer.decode(output[0][prompt_length:],
+                                     skip_special_tokens = True).strip()
+
+    def send_message(self, question):
+        """Ask a question, let the model use the tools, return the answer."""
+        self.last_tool_calls = []
+        tools_by_name = {tool.name: tool for tool in self.tools}
+        schemas = [tool_to_local_schema(tool) for tool in self.tools]
+
+        messages = ([{"role": "system", "content": self.system_instruction}]
+                    + self.messages
+                    + [{"role": "user", "content": question}])
+
+        answer = None
+        try:
+            for _ in range(self.MAX_TOOL_ROUNDS):
+                reply = self._generate(messages, schemas)
+                calls, spoken = parse_local_tool_calls(reply, tools_by_name)
+
+                ## 🩹 A real failure, found by testing: the model sometimes
+                ## narrates ("Now I will describe the table...") and emits a
+                ## bare `</tool_call>` with no opening tag. The stop string
+                ## fires on it, nothing parses as a call, and the loop used
+                ## to hand that half-sentence to the user AS THE ANSWER,
+                ## raw markup included.
+                ##
+                ## Re-running the same prompt would change nothing - this is
+                ## greedy decoding, so it is deterministic. Re-running it
+                ## WITHOUT the stop string lets the model carry on past the
+                ## stray tag and produce the call it was reaching for.
+                if not calls and _LOCAL_STRAY_RE.search(reply):
+                    print(' - Local model: incomplete tool call, retrying')
+                    reply = self._generate(messages, schemas,
+                                           stop_at_tool_call = False)
+                    calls, spoken = parse_local_tool_calls(reply, tools_by_name)
+
+                if not calls:
+                    answer = scrub_tool_markup(reply)
+                    break
+
+                messages.append({"role": "assistant",
+                                 "content": spoken,
+                                 "tool_calls": [{"function": c} for c in calls]})
+
+                for call in calls:
+                    self.last_tool_calls.append(call["name"])
+                    tool = tools_by_name.get(call["name"])
+                    if tool is None:
+                        result = ("There is no tool called %s. The tools are: "
+                                  "%s." % (call["name"], ", ".join(tools_by_name)))
+                    else:
+                        try:
+                            result = tool.call(call["arguments"])
+                        except Exception as e:
+                            ## Hand the error back as a tool result rather
+                            ## than raising, exactly as the hosted path
+                            ## does, so the model can correct itself.
+                            result = "That tool failed: %s: %s" % (type(e).__name__, e)
+                    messages.append({"role": "tool", "content": str(result)})
+
+        except Exception as e:
+            ## A local model fails differently from an API: out of memory,
+            ## a missing package, a driver problem. None of those should
+            ## look like a crashed app to somebody trying this once.
+            print(' - Local model error: %s: %s' % (type(e).__name__, e))
+            return ("The local model ran into a problem: %s. If this says "
+                    "something about memory, try closing other programs, or "
+                    "switch to Hosted at the top of this tab." % e)
+
+        if not answer:
+            answer = ("I could not reach an answer with the tools I have. "
+                      "Try a narrower question, or switch to Hosted.")
+
+        self.messages.append({"role": "user", "content": question})
+        self.messages.append({"role": "assistant", "content": answer})
+        return answer
+
+
+## ══════════════════════════════════════════════════════════════════════
+##  What BOTH engines are told - the prompt that stops confident nonsense
+## ══════════════════════════════════════════════════════════════════════
+##
+## 🛑 Every line of this was earned by a measured wrong answer, not added
+## as a precaution. Asked to read a ratio study, Qwen3.5-4B invented SIX
+## different expansions of "PRD" across four runs - "Percent of Residential
+## Determination", "Property Ratio Deviation", "Percentile Ratio
+## Difference" - and described a sales ratio upside down. It was fluent and
+## confident every time.
+##
+## It is in the SHARED prompt rather than the local one because a
+## definition cannot hurt the hosted model, and because the alternative is
+## two prompts that drift.
+RATIO_STUDY_GROUNDING = """
+
+    THE STATISTICS, DEFINED. Use these exactly. Do not invent others, and
+    do not guess at what an abbreviation stands for - if you are not
+    certain, say so.
+
+    - A SALES RATIO is the appraised value DIVIDED BY the sale price. A
+      ratio BELOW 1.00 means the property is assessed BELOW what it sold
+      for. Getting this the wrong way round reverses the conclusion.
+    - MEDIAN RATIO measures the LEVEL of assessment. The IAAO target range
+      is 0.90 to 1.10.
+    - COD is the COEFFICIENT OF DISPERSION. It measures UNIFORMITY - how
+      far individual ratios scatter around the median. LOWER IS BETTER.
+      The IAAO acceptable range for single family residential is 5.0 to
+      15.0. COD is NOT a percentage difference between two numbers.
+    - PRD is the PRICE-RELATED DIFFERENTIAL. It measures VERTICAL EQUITY,
+      and it is the MEAN ratio divided by the WEIGHTED MEAN ratio. The IAAO
+      acceptable range is 0.98 to 1.03. Above 1.03 suggests regressivity -
+      cheaper homes assessed relatively higher than expensive ones.
+    - PRB is the PRICE-RELATED BIAS. This app does not compute it.
+
+    NEVER SUBSTITUTE ONE STATISTIC FOR ANOTHER. If you are asked for a
+    MEDIAN, do not compute an average and call it a median. Reporting one
+    statistic under the name of another is the most damaging thing you can
+    do here, because an assessor will act on it.
+
+    This database is SQLite, which has NO median, percentile or mode
+    function. AVG is the MEAN, and the mean is NOT the median - on this
+    roll the mean Model_Value is about 40% higher than the median, because
+    property values are strongly right-skewed. To get a median, use the
+    describe_Data tool, which reports the 50% quartile.
+
+    If the data needed for an answer is not in the database, say so plainly
+    instead of approximating it with something else.
+
+    NEVER STATE A NUMBER YOU DID NOT GET FROM A TOOL. Every figure in your
+    answer must come from a tool result in this conversation. Do not
+    estimate one, do not infer one from the shape of a distribution, and do
+    not reach for a word like "approximately", "roughly" or "typically" to
+    cover a number you have not looked up. If you want a mean, a median, a
+    quartile or a standard deviation, call describe_Data and read it off
+    the result.
+
+    This matters most when you describe a chart. Draw it with query_plotter,
+    then call describe_Data on the SAME query, and describe the chart using
+    those real numbers. A number you invented is worse than no number,
+    because the person reading it cannot tell the difference."""
+
+
+## 🛑 And the honest part: what this assistant CANNOT do.
+##
+## The chat database holds `Just_Value` and `Model_Value` and NO sale
+## price, so not one ratio study statistic can be computed from it - not
+## because a function is missing, but because a COLUMN is. Without this
+## paragraph the model hunted through the schema for four or five tool
+## rounds and then sometimes answered anyway. With it, it declines in one
+## round and points somewhere useful.
+LOCAL_TOOL_BELT_LIMITS = """
+
+    WHAT YOU CANNOT DO. You have no tool that computes a ratio study
+    statistic, and this database has no sale price column. COD, PRD, PRB
+    and the median sales ratio all need sale prices, so you cannot compute
+    any of them here. If you are asked for one, say that plainly, say it is
+    because the chat database holds no sale prices, and point the person at
+    the ratio study on the Results tab, which does have them.
+
+    Do not approximate a sales ratio using Just_Value and Model_Value. They
+    are two estimates of value; neither is a sale price, and a ratio
+    between them is not a sales ratio."""
+
+
+def describe_chat_database(connection):
+    """The real schema, read from the database we just built.
+
+    📌 Written rather than hardcoded for a reason. The prompt used to list
+    eight columns from memory while the table actually has thirteen - so
+    the model was never told that City, Address, ZIP_Code or
+    Neighborhood_Code existed, and could only find them by going looking.
+    Reading it here means the prompt cannot drift from the table.
+    """
+    lines = ["\n\n    THE DATABASE. These are all of the tables and columns "
+             "there are. The list is complete - if a column you need is not "
+             "here, it does not exist, so say so rather than improvising one."]
+    cursor = connection.cursor()
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+    for (table_name,) in cursor.fetchall():
+        columns = cursor.execute("PRAGMA table_info(%s);" % table_name).fetchall()
+        row_count = cursor.execute("SELECT COUNT(*) FROM %s;" % table_name).fetchone()[0]
+        lines.append("\n    Table %s - %s rows:" % (table_name, format(row_count, ",")))
+        lines.append("      " + ", ".join("%s %s" % (c[1], c[2]) for c in columns))
+    return "\n".join(lines)
+
+
+## ── Questions this assistant is actually good at ──────────────────────
+##
+## 📋 Not a guess. Each of these was run against the real Lee County roll
+## with the answer checked against the same figure computed in pandas, and
+## the local model got every one of them right. The three it CANNOT do are
+## listed separately on screen, because knowing where a tool stops being
+## trustworthy is the most useful thing a reader can be told about it.
+CHAT_EXAMPLE_QUESTIONS = [
+    "What columns are in the database?",
+    "How many parcels are in the roll?",
+    "How many parcels have a Just_Value over 500,000?",
+    "What is the median Model_Value?",
+    "What is the mean Just_Value, and the total for the whole roll?",
+    "Which city has the most parcels, and how many?",
+    "What is the average Model_Value for parcels built after 2000?",
+    "Draw me a histogram of Model_Value.",
+    "What does COD stand for, and what is an acceptable range?",
+    "If a sales ratio is 0.94, is the property assessed above or below "
+    "its sale price?",
+]
+
+CHAT_KNOWN_LIMITS = [
+    "COD, PRD or any ratio study statistic - the chat database has no "
+    "sale prices, so none of them can be computed here. The Results tab "
+    "has the ratio study.",
+    "Anything needing a sale price or a sale date.",
+    "Legal, policy or appeal advice. These are benchmark estimates.",
+]
+
+
 def Build_Chat_Bot_And_Data():
 
     #### Building Data Set For the Model ####
@@ -3389,6 +3909,15 @@ def Build_Chat_Bot_And_Data():
     ## Setting up google API key 
 
     ## The key comes from .env, and a key typed into the box overrides it.
+    ## ── Which engine? ─────────────────────────────────────────────────
+    ## The local model needs no key, no client and no internet, so none of
+    ## that is set up for it. Building an `anthropic.Anthropic` client we
+    ## would never use would also mean demanding a key from somebody who
+    ## chose Local precisely because they do not have one.
+    use_local_engine = using_local_engine()
+    client = None
+    Model_Name = None
+
     ANTHROPIC_API_KEY = st.session_state["Anthropic_Key"]
 
     typed_key = (st.session_state["Provided_Anthropic_Key"] or "").strip()
@@ -3403,13 +3932,16 @@ def Build_Chat_Bot_And_Data():
     else:
         print('API key loaded: NO - none provided')
 
-    client = anthropic.Anthropic(api_key = ANTHROPIC_API_KEY)
+    if use_local_engine:
+        print(f'Chat engine: LOCAL - {LOCAL_MODEL_ID} (no API key needed)')
+    else:
+        client = anthropic.Anthropic(api_key = ANTHROPIC_API_KEY)
 
-    ## Whatever was picked in the dropdown, falling back to the default.
-    Model_Name = CHAT_MODELS.get(
-        st.session_state['Chat_Model_Selected'], DEFAULT_CHAT_MODEL
-    )
-    print(f'Chat model: {Model_Name}')
+        ## Whatever was picked in the dropdown, falling back to the default.
+        Model_Name = CHAT_MODELS.get(
+            st.session_state['Chat_Model_Selected'], DEFAULT_CHAT_MODEL
+        )
+        print(f'Chat engine: HOSTED - {Model_Name}')
 
     db_tools = [list_tables, describe_table, execute_query,describe_Data,query_plotter ]
 
@@ -3532,13 +4064,40 @@ def Build_Chat_Bot_And_Data():
     If you do not know the answer, you can say "I don't know"
     """
 
+    ## ── The shared additions ──────────────────────────────────────────
+    ## Both engines get the same definitions, the same prohibition on
+    ## swapping one statistic for another, the REAL schema read from the
+    ## database we just built, and the same honest statement of what
+    ## cannot be computed here. See the constants above for why each
+    ## block exists - every one of them is a measured wrong answer.
+    instruction = (instruction
+                   + RATIO_STUDY_GROUNDING
+                   + describe_chat_database(st.session_state["Chat_Bot_Data_Base"])
+                   + LOCAL_TOOL_BELT_LIMITS)
+
     ## One conversation, holding its own history. See NAL_Chat_Session.
-    chat = NAL_Chat_Session(
-        client = client,
-        model = Model_Name,
-        system_instruction = instruction,
-        tools = db_tools,
-    )
+    ## Both classes expose the same `send_message(question) -> str`, so
+    ## nothing downstream - not `response_generator`, not the chat box -
+    ## needs to know which engine answered.
+    if use_local_engine:
+        with st.spinner("Loading the local model - this takes a moment the "
+                        "first time."):
+            local_tokenizer, local_model, device_note = load_local_model()
+        chat = Local_NAL_Chat_Session(
+            tokenizer = local_tokenizer,
+            model = local_model,
+            system_instruction = instruction,
+            tools = db_tools,
+            device_note = device_note,
+        )
+    else:
+        device_note = ""
+        chat = NAL_Chat_Session(
+            client = client,
+            model = Model_Name,
+            system_instruction = instruction,
+            tools = db_tools,
+        )
     greeting_text = (
         "Hi there! I can answer questions about the roll you just modelled - "
         "counts, medians, breakdowns by neighbourhood, charts. A good first "
@@ -3548,6 +4107,27 @@ def Build_Chat_Bot_And_Data():
         "report is a **benchmark estimate** from a simple baseline model, not "
         "an assessed value. `Just_Value` is your county's own number."
     )
+
+    ## The local model gets its own second paragraph, because the honest
+    ## thing to say about it is specific: it is not that the model is bad,
+    ## it is that its TOOL BELT is short. It can count, filter, group and
+    ## summarise perfectly well. It has no tool that computes a ratio study
+    ## statistic, and the database it reads has no sale prices to compute
+    ## one from. That is a missing COLUMN and a missing TOOL, not a missing
+    ## brain - and it is fixable, which is why the wording says "yet".
+    if use_local_engine:
+        greeting_text += (
+            "\n\n---\n\n**I am running on this computer** - nothing you "
+            "type, and no parcel data, leaves the building. " + device_note +
+            "\n\n:toolbox: **My tool belt is limited, so please check my "
+            "figures on anything complicated.** I am good at counting "
+            "parcels, filtering them, grouping them, and giving you means, "
+            "medians and quartiles. I have **no tool yet that computes a "
+            "ratio study statistic** - COD, PRD and the median sales ratio "
+            "all need sale prices, and the database I read does not have "
+            "them. Use the **4. Results** tab for those. As more tools are "
+            "added, this warning gets shorter."
+        )
     with st.chat_message("assistant"):
         st.write(greeting_text)
     
@@ -5044,10 +5624,64 @@ else:
         else:
             st.markdown('#### How About we Discuss your Data!')
             st.write("---")
+
+            ## 📋 These are not suggestions somebody thought sounded good.
+            ## Every question in CHAT_EXAMPLE_QUESTIONS was put to the local
+            ## model against the real Lee County roll, and its answer was
+            ## checked against the same figure computed independently in
+            ## pandas. It got all of them right. The limits beside them are
+            ## the questions it could NOT answer - which is the more useful
+            ## half of the list, and the half a reader is never shown.
+            with st.expander("What can I ask it?"):
+                q_col, limit_col = st.columns(2)
+                with q_col:
+                    st.markdown("**Questions it handles well**")
+                    for _example in CHAT_EXAMPLE_QUESTIONS:
+                        st.markdown("- %s" % _example)
+                with limit_col:
+                    st.markdown("**What it cannot do yet**")
+                    for _limit in CHAT_KNOWN_LIMITS:
+                        st.markdown("- %s" % _limit)
+                    st.caption(
+                        "Checked against the real Lee County roll, with "
+                        "every number verified against the same figure "
+                        "computed in pandas."
+                    )
             st.markdown('#####')
                 
                 
             if st.session_state["Chat_Launched"] == None: 
+
+                ## ── Where should the model run? ───────────────────
+                ## No `index =` here on purpose, same as the dropdown
+                ## below: the starting value comes from session state,
+                ## which is seeded near the top of this file. Passing
+                ## both means the widget's own default is thrown away,
+                ## silently. FINDINGS 32.
+                st.radio('Where should the assistant run?'
+                         , CHAT_ENGINES
+                         , key = 'Chat_Engine_Selected'
+                         , horizontal = True)
+
+                if using_local_engine():
+                    st.info(
+                        "**Nothing will leave this computer.** The model "
+                        "runs here, reads the roll you just modelled, and "
+                        "needs no API key and no internet - so the two "
+                        "boxes below are greyed out.\n\n"
+                        ":toolbox: It is a small model with a **limited "
+                        "tool belt**. It is good at counting, filtering, "
+                        "grouping and summarising your roll. It **cannot "
+                        "compute ratio study statistics** - the chat "
+                        "database holds no sale prices - so **check its "
+                        "figures on anything complicated.** More tools are "
+                        "planned, and this is a concept you can watch grow."
+                    )
+                    st.caption(
+                        f"Model: `{LOCAL_MODEL_ID}`. The packages come from "
+                        f"`uv sync --extra slm`; the model weights are a "
+                        f"separate one-time download - see the README."
+                    )
 
                 ch_col1, ch_col2  = st.columns(2)
 
@@ -5059,7 +5693,8 @@ else:
                     st.selectbox('Pick a chat model'
                                 , list(CHAT_MODELS.keys())
                                 , key = 'Chat_Model_Selected'
-                                , on_change = set_chatmodel)
+                                , on_change = set_chatmodel
+                                , disabled = using_local_engine())
                     #st.write(f"You selected: {st.session_state['Chat_Model_Selected']}")
                     
                 with ch_col2:
@@ -5070,7 +5705,8 @@ else:
                                 , key = 'Provided_Anthropic_Key'
                                 , type = 'password'
                                 , placeholder = 'Leave blank to use your .env file'
-                                , on_change = set_User_API_key)
+                                , on_change = set_User_API_key
+                                , disabled = using_local_engine())
                         
 
                 st.markdown('#####')
@@ -5088,7 +5724,10 @@ else:
                     ## went ahead with no key at all.
                     _typed_key = (st.session_state["Provided_Anthropic_Key"] or "").strip()
                     _env_key = st.session_state["Anthropic_Key"]
-                    if _typed_key or _env_key:
+                    ## The local engine needs no key at all, so it must
+                    ## not be held behind one. Somebody who chose Local
+                    ## very likely has no key, and that is the point.
+                    if using_local_engine() or _typed_key or _env_key:
                         with st.spinner("Hold on Tight walking up the Chat Bot!"):
                             response_container_Chat = st.empty()                                    
                             with response_container_Chat.container():
@@ -5105,7 +5744,9 @@ else:
                         st.warning(
                             'No Anthropic API key found. Put ANTHROPIC_API_KEY '
                             'in your .env file (see .env.example), or paste a '
-                            'key into the box above.'
+                            'key into the box above - or switch to **Local** '
+                            'above, which runs on this computer and needs no '
+                            'key at all.'
                         )
 
             if st.session_state["Chat_Launched"] is not None: 
