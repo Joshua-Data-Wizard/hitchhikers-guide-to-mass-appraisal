@@ -55,6 +55,7 @@ from sklearn.preprocessing import StandardScaler
 ## Importing Training and testing split
 from sklearn.model_selection import train_test_split
 from sklearn.model_selection import StratifiedKFold
+from sklearn.model_selection import KFold
 
 # Models 
 import lightgbm as ltb
@@ -385,8 +386,20 @@ if "EPSG_List" not in st.session_state:
 if "COS_ADJ_KEY" not in st.session_state:
     st.session_state["COS_ADJ_KEY"] = .85
 
+## 🩹 Seeded with a real code, not None.
+##
+## The selectbox that owns this key passed `index = 1` to start on '01'.
+## A Streamlit widget whose key is ALREADY in session state uses the
+## session-state value and ignores its own default, so this stayed None -
+## and pressing "Update the DR 493 Adjustment" without first touching the
+## dropdown raised TypeError on `'... for ' + None`.
+##
+## Worse if that print had not been there: the next line would have
+## written None in as a dictionary key, and the adjustment would have been
+## silently discarded, because every lookup uses str(row['DOR_UC']).
+## A crash was the lucky outcome. FINDINGS 32.
 if  "current_Adjust_dor" not in st.session_state:
-    st.session_state['current_Adjust_dor'] = None
+    st.session_state['current_Adjust_dor'] = '01'
 
 if "Hyperparameter_Tuning_Toggle" not in st.session_state:
     st.session_state['Hyperparameter_Tuning_Toggle'] = False 
@@ -394,6 +407,12 @@ if "Hyperparameter_Tuning_Toggle" not in st.session_state:
 
 if "Hyperparameter_Tuning_Trials" not in st.session_state:
     st.session_state['Hyperparameter_Tuning_Trials'] = 150
+
+## How many cross-validation folds each trial is scored over. 5 is the
+## usual choice and what the measurements below assume. Fewer is faster
+## and noisier; more is slower and steadier.
+if "Hyperparameter_Tuning_Folds" not in st.session_state:
+    st.session_state['Hyperparameter_Tuning_Folds'] = 5
 
 if "HyperParametet_Tuning_N_Estimators_Low" not in st.session_state:
     st.session_state['HyperParametet_Tuning_N_Estimators_Low'] = 250
@@ -1633,7 +1652,84 @@ def Merge_data(NAL_Data , SDF_Data , GIS_Data):
         
     
 
-def Model_Objective(trial, Model_Train_Data, Model_Test_Data,model_features, performance_metric = 'RMSE', model_early_stopping_Rounds = 150 ):
+def Score_Model_Predictions(performance_metric, actual_values, predicted_values):
+    """Turn predictions into a single number, in one place.
+
+    ⚠️ Two things this function exists to get right.
+
+    **COD's argument order matters.** `COD(sale_price, appraised_value)` is
+    NOT symmetric - swapping the two changes the answer (measured: 14.53
+    against 15.59 on the same data). Writing the order down once beats
+    remembering it at four call sites.
+
+    **R squared is returned NEGATED.** The Optuna study minimises, and a
+    higher R squared is better - so minimising it unnegated would search
+    for the WORST model. Nothing currently asks for 'r2', which is exactly
+    why it would have gone unnoticed.
+    """
+    metric = performance_metric.lower().strip()
+
+    if metric == 'rmse':
+        return np.sqrt(mean_squared_error(actual_values, predicted_values))
+    if metric == 'mae':
+        return mean_absolute_error(actual_values, predicted_values)
+    if metric == 'cod':
+        return COD(actual_values, predicted_values)
+    if metric == 'r2':
+        return -r2_score(actual_values, predicted_values)
+
+    raise ValueError(
+        f"Unknown performance metric {performance_metric!r}. "
+        f"Use one of: RMSE, MAE, COD, R2."
+    )
+
+
+def Model_Objective(trial
+                    , Model_Train_Data
+                    , model_features
+                    , performance_metric = 'RMSE'
+                    , n_folds = 5):
+    """Score ONE set of hyperparameters, honestly.
+
+    Optuna calls this once per trial. It has to answer: how good is this
+    combination of settings? The answer decides which settings get used,
+    so how it is measured matters more than almost anything else here.
+
+    🛑 What this used to do, and why it was wrong
+    -------------------------------------------
+    It fitted on the training split and scored on the TEST split. Then the
+    finished model's "test" performance was reported from that same split.
+
+    That is **hyperparameter leakage**. Run 150 trials against a test set
+    and you are no longer measuring how the model does on data it has not
+    seen - you are picking whichever settings happen to suit those 5,000
+    particular sales. The reported COD comes out flattering, the reader
+    believes it, and the first time the model meets a genuinely new year
+    of sales it does worse than advertised. In appraisal that is not an
+    academic problem: somebody's value is in that number.
+
+    ✅ What it does now
+    ------------------
+    **The test split is never touched during tuning.** Each trial splits
+    the TRAINING data into `n_folds` parts, then for each part: fit on the
+    others, score on this one. The trial's score is the average. So every
+    score comes from data that particular fit had not seen, and the test
+    split stays sealed until the final model is scored once.
+
+    It costs `n_folds` fits per trial instead of one. Measured on the real
+    SFR training set: about 1.5 s per 5-fold trial, so 150 trials is
+    roughly 4 minutes on a 24-core machine - more on a laptop.
+
+    📌 An open question, deliberately left open
+    ------------------------------------------
+    The folds are stratified by **sale year**, matching how the app's own
+    train/test split works, so each fold sees a similar mix of years.
+
+    A valuation model predicts FORWARD, though, and a stricter design
+    would train on earlier sales and validate on later ones. That is a
+    different and arguably better choice, and it would change the headline
+    numbers - so it is not being made quietly here. See CLAUDE.md section 7.
+    """
 
 
   
@@ -1655,29 +1751,58 @@ def Model_Objective(trial, Model_Train_Data, Model_Test_Data,model_features, per
 
 
 
-    lgb_model_opt = ltb.LGBMRegressor(**Opt_model_params)
-    lgb_model_opt.fit(Model_Train_Data[model_features] 
-                        , Model_Train_Data[Model_Outcome[0]]
-                       # , eval_set=[(Model_Test_Data[model_features], Model_Test_Data[Model_Outcome[0]])]
-                       # , eval_names=['train', 'test']
-                       # , callbacks=[ltb.early_stopping(stopping_rounds = model_early_stopping_Rounds, verbose=False)]
-                       )
-    
-    Opt_Model_Pred = lgb_model_opt.predict(Model_Test_Data[model_features])
+    ## ── Choose how to cut the training data into folds ──────────────────
+    ##
+    ## A fold needs at least one row of every sale year to stratify on it.
+    ## Residential rolls have thousands per year; a Commercial model on a
+    ## small county might have three sales in 2021. So check, and fall back
+    ## to plain random folds rather than raising at the reader.
+    n_folds = int(n_folds)
+    n_folds = max(2, min(n_folds, len(Model_Train_Data) // 2))
 
+    fold_strata = Model_Train_Data[Stratification_Variable]
 
-        
-    opt_metric_score = 0 
-    if performance_metric.lower().strip() == 'rmse':
-        opt_metric_score = np.sqrt(mean_squared_error(Model_Test_Data[Model_Outcome[0]], Opt_Model_Pred))
-    elif performance_metric.lower().strip() == 'r2':
-        opt_metric_score = r2_score(Model_Test_Data[Model_Outcome[0]], Opt_Model_Pred)
-    elif performance_metric.lower().strip() == 'mae':
-        opt_metric_score = mean_absolute_error(Model_Test_Data[Model_Outcome[0]], Opt_Model_Pred)
-    elif performance_metric.lower().strip() == 'cod':
-        opt_metric_score = COD(Model_Test_Data[Model_Outcome[0]], Opt_Model_Pred)
+    if fold_strata.value_counts().min() >= n_folds:
+        fold_splitter = StratifiedKFold(n_splits = n_folds
+                                        , shuffle = True
+                                        , random_state = 42)
+        fold_indices = fold_splitter.split(Model_Train_Data, fold_strata)
+    else:
+        fold_splitter = KFold(n_splits = n_folds
+                              , shuffle = True
+                              , random_state = 42)
+        fold_indices = fold_splitter.split(Model_Train_Data)
 
-    return opt_metric_score
+    ## ── Fit once per fold, scoring on the part left out ─────────────────
+    fold_scores = []
+
+    for fold_number, (fold_train_rows, fold_val_rows) in enumerate(fold_indices):
+        fold_train = Model_Train_Data.iloc[fold_train_rows]
+        fold_validation = Model_Train_Data.iloc[fold_val_rows]
+
+        fold_model = ltb.LGBMRegressor(**Opt_model_params)
+        fold_model.fit(fold_train[model_features]
+                       , fold_train[Model_Outcome[0]])
+
+        fold_scores.append(Score_Model_Predictions(
+            performance_metric
+            , fold_validation[Model_Outcome[0]].values.ravel()
+            , fold_model.predict(fold_validation[model_features])
+        ))
+
+        ## Tell Optuna how this trial is going so far. If the running
+        ## average is already worse than the median trial at this point,
+        ## there is no sense fitting the remaining folds - the pruner says
+        ## so and we stop. On a wide search space most trials are poor, so
+        ## this is where a good chunk of the k-fold cost comes back.
+        trial.report(float(np.mean(fold_scores)), fold_number)
+
+        if trial.should_prune():
+            raise optuna.TrialPruned()
+
+    ## The average across folds. One fold getting lucky cannot carry a
+    ## trial, which is the whole point of doing it this way.
+    return float(np.mean(fold_scores))
 
 
 ### ML Model Functions ###
@@ -1759,13 +1884,29 @@ def Build_ML_Regressors (pg_bar):
             
         else: 
             print('---- PERFORMING SFR HYPERPARAMETER TUNING ----')
-            LGBM_study = optuna.create_study(direction='minimize')
+            ## 🎲 A seeded sampler, so the search is REPRODUCIBLE.
+            ## Without `seed`, Optuna explores differently every run and
+            ## two people following the same steps get different models -
+            ## which makes any number either of them quotes unverifiable.
+            ##
+            ## ✂️ The pruner abandons a trial once its running score is
+            ## worse than the median trial at the same fold. It is what
+            ## pays for cross-validation: hopeless trials cost one or two
+            ## fits instead of all of them. `n_startup_trials` lets the
+            ## first 10 finish, so there is something to take a median of.
+            LGBM_study = optuna.create_study(
+                direction = 'minimize'
+                , sampler = optuna.samplers.TPESampler(seed = 42)
+                , pruner = optuna.pruners.MedianPruner(n_startup_trials = 10
+                                                       , n_warmup_steps = 1)
+            )
+            ## No test data is passed any more - that is the point. The
+            ## objective cross-validates within the training split.
             LGBM_study_obj_func = lambda trial: Model_Objective(trial
                                                     , Model_Train_Data = NAL_Data_Train_SFR
-                                                    , Model_Test_Data = NAL_Data_Test_SFR
                                                     , model_features = st.session_state['Model_Features']
                                                     , performance_metric = 'COD'
-                                                    , model_early_stopping_Rounds = 150)    
+                                                    , n_folds = st.session_state['Hyperparameter_Tuning_Folds'])
             
             LGBM_study.optimize(LGBM_study_obj_func
                                 , n_trials = st.session_state['Hyperparameter_Tuning_Trials'])
@@ -1777,11 +1918,20 @@ def Build_ML_Regressors (pg_bar):
 
             NAL_Model = ltb.LGBMRegressor(**LGBM_Best_Params)
 
+            ## 🛑 No `eval_set` on the test split here, deliberately.
+            ##
+            ## It used to early-stop against the test data: train until the
+            ## test score stops improving. That reads like good practice and
+            ## is the same leak as before in a quieter form - the test split
+            ## decides how many trees the model keeps, so the test score it
+            ## then reports is not a clean measurement.
+            ##
+            ## `n_estimators` comes from the cross-validated search instead,
+            ## which chose it without ever seeing the test data. It also
+            ## clears a deprecation: `eval_set` is on its way out of
+            ## LightGBM in favour of `eval_X` / `eval_y`.
             NAL_Model.fit(NAL_Data_Train_SFR_Features
-                            , NAL_Data_Train_SFR[Model_Outcome[0]]
-                             ,eval_set=[(NAL_Data_Test_SFR[st.session_state['Model_Features']], NAL_Data_Test_SFR[Model_Outcome[0]])]
-                            , eval_names=['train', 'test']
-                            , callbacks=[ltb.early_stopping(stopping_rounds = 150, verbose=False)])
+                          , NAL_Data_Train_SFR[Model_Outcome[0]])
             
 
         NAL_Model_Train_SFR_results = NAL_Data_Train_SFR.copy()
@@ -1995,19 +2145,31 @@ def Build_ML_Regressors (pg_bar):
             
         else:
             print('---- PERFORMING VAC RES HYPERPARAMETER TUNING ----')
-            LGBM_study = optuna.create_study(direction='minimize')
+            ## 🎲 A seeded sampler, so the search is REPRODUCIBLE.
+            ## Without `seed`, Optuna explores differently every run and
+            ## two people following the same steps get different models -
+            ## which makes any number either of them quotes unverifiable.
+            ##
+            ## ✂️ The pruner abandons a trial once its running score is
+            ## worse than the median trial at the same fold. It is what
+            ## pays for cross-validation: hopeless trials cost one or two
+            ## fits instead of all of them. `n_startup_trials` lets the
+            ## first 10 finish, so there is something to take a median of.
+            LGBM_study = optuna.create_study(
+                direction = 'minimize'
+                , sampler = optuna.samplers.TPESampler(seed = 42)
+                , pruner = optuna.pruners.MedianPruner(n_startup_trials = 10
+                                                       , n_warmup_steps = 1)
+            )
+            ## No test data is passed any more - the objective
+            ## cross-validates within the training split. That also
+            ## retires the bug this branch used to have, where the FULL
+            ## qualified-sales set was handed over as the test split.
             LGBM_study_obj_func = lambda trial: Model_Objective(trial
                                                     , Model_Train_Data = NAL_Data_Train_Vac_Res
-                                                    ## 🩹 This was NAL_ModelData_Vac - the
-                                                    ## FULL qualified-sales set, training rows
-                                                    ## included. SFR, Condo and Commercial all
-                                                    ## pass their proper test split; this one
-                                                    ## scored every trial partly on data the
-                                                    ## trial had just been fitted to.
-                                                    , Model_Test_Data = NAL_Data_Test_Vac_Res
                                                     , model_features = st.session_state['Model_Features_Vac_Res']
                                                     , performance_metric = 'COD'
-                                                    , model_early_stopping_Rounds = 150)    
+                                                    , n_folds = st.session_state['Hyperparameter_Tuning_Folds'])
             
             LGBM_study.optimize(LGBM_study_obj_func
                                 , n_trials = st.session_state['Hyperparameter_Tuning_Trials'])
@@ -2018,12 +2180,10 @@ def Build_ML_Regressors (pg_bar):
             LGBM_Best_Params = {**LGBM_Best_Params, **{'verbose': -1}}
 
             NAL_Model_Vac_Res = ltb.LGBMRegressor(**LGBM_Best_Params)
+            ## See the SFR fit above for why there is no eval_set here.
+            ## This branch already had it commented out.
             NAL_Model_Vac_Res.fit(NAL_Data_Train_Vac_Res_Features
-                                    , NAL_Data_Train_Vac_Res[Model_Outcome[0]]
-                                #    ,eval_set=[(NAL_Data_Test_Vac_Res[st.session_state['Model_Features_Vac_Res']], NAL_Data_Test_Vac_Res[Model_Outcome[0]])]
-                                #    , eval_names=['train', 'test']
-                                #    , callbacks=[ltb.early_stopping(stopping_rounds = 150, verbose=False)]
-                                    )
+                                  , NAL_Data_Train_Vac_Res[Model_Outcome[0]])
             
 
         
@@ -2179,13 +2339,29 @@ def Build_ML_Regressors (pg_bar):
             
         else:
             print('---- PERFORMING CONDO HYPERPARAMETER TUNING ----')
-            LGBM_study = optuna.create_study(direction='minimize')
+            ## 🎲 A seeded sampler, so the search is REPRODUCIBLE.
+            ## Without `seed`, Optuna explores differently every run and
+            ## two people following the same steps get different models -
+            ## which makes any number either of them quotes unverifiable.
+            ##
+            ## ✂️ The pruner abandons a trial once its running score is
+            ## worse than the median trial at the same fold. It is what
+            ## pays for cross-validation: hopeless trials cost one or two
+            ## fits instead of all of them. `n_startup_trials` lets the
+            ## first 10 finish, so there is something to take a median of.
+            LGBM_study = optuna.create_study(
+                direction = 'minimize'
+                , sampler = optuna.samplers.TPESampler(seed = 42)
+                , pruner = optuna.pruners.MedianPruner(n_startup_trials = 10
+                                                       , n_warmup_steps = 1)
+            )
+            ## No test data is passed any more - that is the point. The
+            ## objective cross-validates within the training split.
             LGBM_study_obj_func = lambda trial: Model_Objective(trial
                                                     , Model_Train_Data = NAL_Data_Train_Condo
-                                                    , Model_Test_Data = NAL_Data_Test_Condo
                                                     , model_features = st.session_state['Model_Features_Condos']
                                                     , performance_metric = 'COD'
-                                                    , model_early_stopping_Rounds = 150)    
+                                                    , n_folds = st.session_state['Hyperparameter_Tuning_Folds'])
             
             LGBM_study.optimize(LGBM_study_obj_func
                                 , n_trials = st.session_state['Hyperparameter_Tuning_Trials'])
@@ -2198,11 +2374,20 @@ def Build_ML_Regressors (pg_bar):
             NAL_Model_Condo = ltb.LGBMRegressor(**LGBM_Best_Params)
             
 
+            ## 🛑 No `eval_set` on the test split here, deliberately.
+            ##
+            ## It used to early-stop against the test data: train until the
+            ## test score stops improving. That reads like good practice and
+            ## is the same leak as before in a quieter form - the test split
+            ## decides how many trees the model keeps, so the test score it
+            ## then reports is not a clean measurement.
+            ##
+            ## `n_estimators` comes from the cross-validated search instead,
+            ## which chose it without ever seeing the test data. It also
+            ## clears a deprecation: `eval_set` is on its way out of
+            ## LightGBM in favour of `eval_X` / `eval_y`.
             NAL_Model_Condo.fit(NAL_Data_Train_Condo_Features
-                                    , NAL_Data_Train_Condo[Model_Outcome[0]]
-                                    ,eval_set=[(NAL_Data_Test_Condo[st.session_state['Model_Features_Condos']], NAL_Data_Test_Condo[Model_Outcome[0]])]
-                                    , eval_names = ['train', 'test']
-                                    , callbacks=[ltb.early_stopping(stopping_rounds = 150, verbose=False)])
+                                , NAL_Data_Train_Condo[Model_Outcome[0]])
         
 
         NAL_Model_Train_Condo_results = NAL_Data_Train_Condo.copy()
@@ -2364,13 +2549,29 @@ def Build_ML_Regressors (pg_bar):
                                     , NAL_Data_Train_Commercial[Model_Outcome[0]])
         else:
             print('---- PERFORMING COMMERCIALHYPERPARAMETER TUNING ----')
-            LGBM_study = optuna.create_study(direction='minimize')
+            ## 🎲 A seeded sampler, so the search is REPRODUCIBLE.
+            ## Without `seed`, Optuna explores differently every run and
+            ## two people following the same steps get different models -
+            ## which makes any number either of them quotes unverifiable.
+            ##
+            ## ✂️ The pruner abandons a trial once its running score is
+            ## worse than the median trial at the same fold. It is what
+            ## pays for cross-validation: hopeless trials cost one or two
+            ## fits instead of all of them. `n_startup_trials` lets the
+            ## first 10 finish, so there is something to take a median of.
+            LGBM_study = optuna.create_study(
+                direction = 'minimize'
+                , sampler = optuna.samplers.TPESampler(seed = 42)
+                , pruner = optuna.pruners.MedianPruner(n_startup_trials = 10
+                                                       , n_warmup_steps = 1)
+            )
+            ## No test data is passed any more - that is the point. The
+            ## objective cross-validates within the training split.
             LGBM_study_obj_func = lambda trial: Model_Objective(trial
                                                     , Model_Train_Data = NAL_Data_Train_Commercial
-                                                    , Model_Test_Data = NAL_Data_Test_Commercial
                                                     , model_features = st.session_state['Model_Features_Commercial']
                                                     , performance_metric = 'COD'
-                                                    , model_early_stopping_Rounds = 150)    
+                                                    , n_folds = st.session_state['Hyperparameter_Tuning_Folds'])
             
             LGBM_study.optimize(LGBM_study_obj_func
                                 , n_trials = st.session_state['Hyperparameter_Tuning_Trials'])
@@ -2383,11 +2584,20 @@ def Build_ML_Regressors (pg_bar):
             NAL_Model_Commercial = ltb.LGBMRegressor(**LGBM_Best_Params)
             
 
+            ## 🛑 No `eval_set` on the test split here, deliberately.
+            ##
+            ## It used to early-stop against the test data: train until the
+            ## test score stops improving. That reads like good practice and
+            ## is the same leak as before in a quieter form - the test split
+            ## decides how many trees the model keeps, so the test score it
+            ## then reports is not a clean measurement.
+            ##
+            ## `n_estimators` comes from the cross-validated search instead,
+            ## which chose it without ever seeing the test data. It also
+            ## clears a deprecation: `eval_set` is on its way out of
+            ## LightGBM in favour of `eval_X` / `eval_y`.
             NAL_Model_Commercial.fit(NAL_Data_Train_Commercial_Features
-                                    , NAL_Data_Train_Commercial[Model_Outcome[0]]
-                                    , eval_set=[(NAL_Data_Test_Commercial[st.session_state['Model_Features_Commercial']], NAL_Data_Test_Commercial[Model_Outcome[0]])]
-                                    , eval_names=['train', 'test']
-                                    , callbacks=[ltb.early_stopping(stopping_rounds = 150, verbose=False)])
+                                     , NAL_Data_Train_Commercial[Model_Outcome[0]])
 
 
         NAL_Model_Train_Commercial_results = NAL_Data_Train_Commercial.copy()
@@ -3188,7 +3398,7 @@ else:
                 st.session_state["NAL"]  = pd.read_csv(NAL_Files
                                                     , low_memory= False)
         #print(type(NAL))
-        st.markdown(""":green[ Your NAL Loaded Succesfully! There are """ + str(st.session_state["NAL"].shape[0]) + """ rows of data in your NAL File ]""")
+        st.markdown(""":green[ Your NAL loaded successfully! There are """ + str(st.session_state["NAL"].shape[0]) + """ rows of data in your NAL File ]""")
 
     st.markdown('#####')
     SDF_Files = st.file_uploader("## Upload SDF file"
@@ -3200,7 +3410,7 @@ else:
                 st.session_state["SDF"]  = pd.read_csv(SDF_Files
                                                         , low_memory= False)
         
-        st.markdown(""":green[ Your SDF Loaded Succesfully! There are """ + str(st.session_state["SDF"].shape[0]) + """ rows of data in your SDF File ]""")
+        st.markdown(""":green[ Your SDF loaded successfully! There are """ + str(st.session_state["SDF"].shape[0]) + """ rows of data in your SDF File ]""")
 
 
     st.markdown('#####')
@@ -3257,14 +3467,17 @@ else:
         st.markdown('## Set DR 493 Adjustments')
         st.write("---")
 
+        ## No `index =` - the starting code comes from session state, which
+        ## is seeded further up. Passing both means this default is silently
+        ## discarded; see the note by that seed.
         st.selectbox("Select DOR Code to Adjust"
                         , list(st.session_state["DOR_COS_ADJ_DICT"].keys())
-                        , index = 1
                         , key = 'current_Adjust_dor'
-                        , placeholder = "Select DOR Code"
                         , on_change = update_COS_Input
-                        # , args = ('01',)
-                        
+                        , help = "DOR use code. The cost-of-sale adjustment "
+                                 "is applied per code, so you can set a "
+                                 "different one for vacant land than for "
+                                 "single-family homes."
                         )
 
         st.markdown('##')
@@ -3277,7 +3490,7 @@ else:
 
         st.markdown('##')
 
-        if(st.button("Update the DR 493 Adjustemt")):
+        if(st.button("Update the DR 493 Adjustment")):
             with st.spinner("Applying the Update!"):
                 print('The New COS adjustment is ' + str(new_COS_ADJ) + ' for ' + st.session_state['current_Adjust_dor'] )
                 st.session_state["DOR_COS_ADJ_DICT"][st.session_state['current_Adjust_dor'] ] = new_COS_ADJ
@@ -3378,67 +3591,121 @@ else:
 
                 with st.expander("Advanced Model Settings"):
                     st.markdown('##')
-                    st.checkbox("Run Hyperparameter Tuning"
-                                , key = "Hyperparameter_Tuning_Toggle")
-                    st.number_input("Number of Trials"
-                                    , min_value = 10
-                                    , max_value = 400
-                                    , value = 150
-                                    , step = 1
-                                    , key = "Hyperparameter_Tuning_Trials")
+                    st.checkbox(
+                        "Run Hyperparameter Tuning"
+                        , key = "Hyperparameter_Tuning_Toggle"
+                        , help = "Searches for better model settings instead of "
+                                 "using the defaults. Each trial is scored by "
+                                 "cross-validation on the TRAINING data, so the "
+                                 "test set stays sealed and the final numbers "
+                                 "stay honest. This is the slow part of the app "
+                                 "- see the time estimate below."
+                    )
+                    st.number_input(
+                        "Number of Trials"
+                        , min_value = 10
+                        , max_value = 400
+                        , step = 1
+                        , key = "Hyperparameter_Tuning_Trials"
+                        , help = "How many different settings combinations to "
+                                 "try. More is better and slower; poor trials "
+                                 "are abandoned early, so the cost is less than "
+                                 "it looks."
+                    )
+                    st.number_input(
+                        "Cross-Validation Folds"
+                        , min_value = 2
+                        , max_value = 10
+                        , step = 1
+                        , key = "Hyperparameter_Tuning_Folds"
+                        , help = "Each trial splits the training data into this "
+                                 "many parts, fits on all but one and scores on "
+                                 "the part left out, then averages. 5 is the "
+                                 "usual choice. Fewer is faster and noisier."
+                    )
+
+                    ## ⏱️ Say what this will cost, in minutes, before anybody
+                    ## presses the button.
+                    ##
+                    ## The 0.85 s is MEASURED: 150 trials x 5 folds took 640 s
+                    ## and 623 s on two runs over 20,381 training sales, on a
+                    ## 24-logical-core desktop. That is 0.85 s per single fold
+                    ## fit.
+                    ##
+                    ## ⚠️ It is a rough figure and will be optimistic for most
+                    ## readers. It scales with the number of training sales,
+                    ## and LightGBM uses every core it is given - so a 4-core
+                    ## laptop can take several times longer. Better a stated
+                    ## estimate that is honest about being rough than a
+                    ## progress bar that says "hang on tight" for 40 minutes.
+                    SECONDS_PER_FOLD_FIT = 0.85
+
+                    _estimated_minutes = (
+                        st.session_state['Hyperparameter_Tuning_Trials']
+                        * st.session_state['Hyperparameter_Tuning_Folds']
+                        * SECONDS_PER_FOLD_FIT / 60
+                    )
+
+                    st.caption(
+                        f"⏱️ These settings mean "
+                        f"{st.session_state['Hyperparameter_Tuning_Trials']} trials "
+                        f"x {st.session_state['Hyperparameter_Tuning_Folds']} folds = "
+                        f"up to "
+                        f"{st.session_state['Hyperparameter_Tuning_Trials'] * st.session_state['Hyperparameter_Tuning_Folds']:,} "
+                        f"model fits, **roughly {_estimated_minutes:.0f} minutes** on a "
+                        f"fast desktop and longer on a laptop. Poor trials are "
+                        f"abandoned early, so the real time is usually less. "
+                        f"Halve the trials to halve the wait."
+                    )
+                    st.markdown('##')
+                    st.caption(
+                        "The search range for each setting. Optuna picks "
+                        "values between the minimum and maximum you give it. "
+                        "Widening a range explores more and needs more trials "
+                        "to cover it."
+                    )
+
+                    ## None of the boxes below pass a `value =`. Their
+                    ## starting numbers are seeded into session_state at the
+                    ## top of this file, and passing both makes Streamlit warn
+                    ## that only one of them can win. FINDINGS 32.
                     Model_Expand_col1, Model_Expand_col2 = st.columns(2)
                     
                     with Model_Expand_col1:
-                        st.number_input("Minimum Number of Estiamtors"
-                                        ,value = 250
+                        st.number_input("Minimum Number of Estimators"
                                         , key = "HyperParametet_Tuning_N_Estimators_Low")
                         st.number_input("Minimum Number of Leaves"
-                                        ,value = 10
                                         , key = "HyperParametet_Tuning_num_leaves_Low")
                         st.number_input("Minimum Learning Rate"
-                                        ,value = .01
                                         , key = "HyperParametet_Tuning_learning_rate_Low")
                         st.number_input("Minimum Subsample"
-                                        ,value = .66
                                         , key = "HyperParametet_Tuning_subsample_Low")
                         st.number_input("Minimum Feature Fraction"
-                                        ,value = .7
                                         , key = "HyperParametet_Tuning_feature_fraction_Low")
                         st.number_input("Minimum Max Depth"
-                                        ,value = 3
                                         , key = "HyperParametet_Tuning_max_depth_Low")
                         st.number_input("Minimum Min Data in Leaf"
-                                        ,value = 3
                                         , key = "HyperParametet_Tuning_min_data_in_leaf_Low")
                         st.number_input("Minimum Min Sum Hessian in Leaf"
-                                        ,value = .1
                                         , key = "HyperParametet_Tuning_min_sum_hessian_in_leaf_Low")
                         
 
                     with Model_Expand_col2:
-                        st.number_input("Maximum Number of Estiamtors"
-                                        ,value = 1500
+                        st.number_input("Maximum Number of Estimators"
                                         , key = "HyperParametet_Tuning_N_Estimators_High")
                         st.number_input("Maximum Number of Leaves"
-                                        ,value = 100
                                         , key = "HyperParametet_Tuning_num_leaves_High")
                         st.number_input("Maximum Learning Rate"
-                                        ,value = .3
                                         , key = "HyperParametet_Tuning_learning_rate_High")
                         st.number_input("Maximum Subsample"
-                                        ,value = 1
                                         , key = "HyperParametet_Tuning_subsample_High")
                         st.number_input("Maximum Feature Fraction"
-                                        ,value = 1
                                         , key = "HyperParametet_Tuning_feature_fraction_High")
                         st.number_input("Maximum Max Depth"
-                                        ,value = 20
                                         , key = "HyperParametet_Tuning_max_depth_High")
                         st.number_input("Maximum Min Data in Leaf"
-                                        ,value = 30
                                         , key = "HyperParametet_Tuning_min_data_in_leaf_High")
                         st.number_input("Maximum Min Sum Hessian in Leaf"
-                                        ,value = 3
                                         , key = "HyperParametet_Tuning_min_sum_hessian_in_leaf_High")
                         
 
