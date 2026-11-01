@@ -1166,8 +1166,14 @@ class DOR_Summary_Report_Generator ():
                                , self.G5.shape[0]
                                , self.G5[self.NAL_Value_Column].sum()]
 
+        ## Stratum_Text is the PRINTABLE report - every cell is a string,
+        ## including the group number. It used to hold bare ints 1-5 here
+        ## and then "" and "COD:" in the summary rows below, so the column
+        ## was mixed and Streamlit had to coerce it before it could draw
+        ## the table. (The parallel `Stratum` frame keeps real numbers;
+        ## that one is for calculating with, this one is for reading.)
         self.Stratum_Text.loc[0] = [self.Stratum_Number + ' S'
-                                    , 1
+                                    , str(1)
                                     , self.Format_My_Numbers(self.G1_trimmed[self.NAL_Value_Column].min() , type = 'int')
                                     , self.Format_My_Numbers(self.G1_trimmed[self.NAL_Value_Column].max(), type = 'int')
                                     , self.Format_My_Numbers(G1S.shape[0], type = 'int')
@@ -1176,7 +1182,7 @@ class DOR_Summary_Report_Generator ():
                                     , self.Format_My_Numbers(G1.shape[0], type = 'int')
                                     , self.Format_My_Numbers(G1[self.NAL_Value_Column].sum(), type = 'int')]
         self.Stratum_Text.loc[1] = [self.Stratum_Number + ' S'
-                                    , 2
+                                    , str(2)
                                     , self.Format_My_Numbers(self.G2_trimmed[self.NAL_Value_Column].min(), type = 'int')
                                     , self.Format_My_Numbers(self.G2_trimmed[self.NAL_Value_Column].max(), type = 'int')
                                     , self.Format_My_Numbers(G2S.shape[0], type = 'int')
@@ -1185,7 +1191,7 @@ class DOR_Summary_Report_Generator ():
                                     , self.Format_My_Numbers(G2.shape[0], type = 'int')
                                     , self.Format_My_Numbers(G2[self.NAL_Value_Column].sum(), type = 'int')]
         self.Stratum_Text.loc[2] = [self.Stratum_Number + ' S'
-                                    , 3
+                                    , str(3)
                                     , self.Format_My_Numbers(self.G3_trimmed[self.NAL_Value_Column].min(), type = 'int')
                                     , self.Format_My_Numbers(self.G3_trimmed[self.NAL_Value_Column].max(), type = 'int')
                                     , self.Format_My_Numbers(G3S.shape[0], type = 'int')
@@ -1193,7 +1199,7 @@ class DOR_Summary_Report_Generator ():
                                     , self.Format_My_Numbers(G3S[self.NAL_Value_Column].sum(), type = 'int')
                                     , self.Format_My_Numbers(G3.shape[0], type = 'int')
                                     , self.Format_My_Numbers(G3[self.NAL_Value_Column].sum(), type = 'int')]
-        self.Stratum_Text.loc[3] = [self.Stratum_Number + ' S', 4
+        self.Stratum_Text.loc[3] = [self.Stratum_Number + ' S', str(4)
                                     , self.Format_My_Numbers(self.G4_trimmed[self.NAL_Value_Column].min(), type = 'int')
                                     , self.Format_My_Numbers(self.G4_trimmed[self.NAL_Value_Column].max(), type = 'int')
                                     , self.Format_My_Numbers(G4S.shape[0], type = 'int')
@@ -1202,7 +1208,7 @@ class DOR_Summary_Report_Generator ():
                                     , self.Format_My_Numbers(G4.shape[0], type = 'int')
                                     , self.Format_My_Numbers(G4[self.NAL_Value_Column].sum(), type = 'int')]
         self.Stratum_Text.loc[4] = [self.Stratum_Number + ' S'
-                                    , 5
+                                    , str(5)
                                     , self.Format_My_Numbers(self.trimmed[self.NAL_Value_Column].min(), type = 'int')
                                     , self.Format_My_Numbers(self.trimmed[self.NAL_Value_Column].max(), type = 'int')
                                     , self.Format_My_Numbers(G5S.shape[0], type = 'int')
@@ -1349,6 +1355,16 @@ class DOR_Summary_Report_Generator ():
        
 
         ## Fill out each row manually
+        ## Every cell in the _Text frame is a STRING - it is the printable
+        ## version of the report. Two of these rows used to write the group
+        ## number as a bare int while the others stringified it, which left
+        ## the column holding ['1', '2', 3, 4, 'Total'].
+        ##
+        ## Streamlit could not convert that to Arrow, logged a full
+        ## ArrowTypeError traceback to the terminal, then recovered by
+        ## coercing the types - so the table DID render and the only cost
+        ## was a traceback that looks fatal and is not. Still worth not
+        ## printing: a reader who sees it reasonably assumes something broke.
         self.GroupLevelStatistics_Text.loc[0] = [self.Stratum_Number
                                                     , str(1)
                                                     , self.Format_My_Numbers(G1S.shape[0] , type = 'int')
@@ -1366,7 +1382,7 @@ class DOR_Summary_Report_Generator ():
                                                     , str(round(self.DOR_PRD(G2S[self.Sale_Value_Column],G2S[self.NAL_Value_Column])*100,2))
                                                     , str(round(self.DOR_weighted_Mean(G2S[self.Sale_Value_Column],G2S[self.NAL_Value_Column])*100,2))]
         self.GroupLevelStatistics_Text.loc[2] = [self.Stratum_Number
-                                                    , 3
+                                                    , str(3)
                                                     , self.Format_My_Numbers(G3S.shape[0], type = 'int')
                                                     , str(Group_3_Median_Sale_Ratio)
                                                     , str(Group_3_Mean_Sale_Ratio)
@@ -1374,7 +1390,7 @@ class DOR_Summary_Report_Generator ():
                                                     , str(round(self.DOR_PRD(G3S[self.Sale_Value_Column],G3S[self.NAL_Value_Column])*100,2))
                                                     , str(round(self.DOR_weighted_Mean(G3S[self.Sale_Value_Column],G3S[self.NAL_Value_Column])*100,2))]
         self.GroupLevelStatistics_Text.loc[3] = [self.Stratum_Number
-                                                    , 4
+                                                    , str(4)
                                                     , self.Format_My_Numbers(G4S.shape[0], type = 'int')
                                                     , str(Group_4_Median_Sale_Ratio)
                                                     , str(Group_4_Mean_Sale_Ratio)
@@ -3345,230 +3361,272 @@ else:
 
 
     st.markdown('##')
-    st.markdown('## Load Your Data')
-    st.write("---")
 
-    ## ── Option 1: the bundled Lee County example ─────────────────────────
-    st.markdown('#### :package: Option 1 - try it on the bundled example')
-
-    _sample = find_sample_data()
-
-    if _sample["nal"] and _sample["sdf"]:
-        st.markdown(
-            "One real county roll ships with this repository: **Lee County, "
-            "Florida**, used with the county's permission. It is the same data "
-            "the notebook walks through, so you can compare the two."
-        )
-        if st.button("Load the Lee County example"
-                     , use_container_width = True
-                     , type = "primary"):
-            with st.status("Reading the roll... the parcel shapes take a few "
-                           "seconds", expanded = True) as _status:
-                st.write("parcels...")
-                st.session_state["NAL"] = pd.read_csv(_sample["nal"], low_memory = False)
-                st.write("sales...")
-                st.session_state["SDF"] = pd.read_csv(_sample["sdf"], low_memory = False)
-                if _sample["shp"]:
-                    st.write("parcel shapes... (a GDAL warning on the "
-                             "terminal here is normal - see below)")
-                    st.session_state["GIS"] = read_parcel_shapes(_sample["shp"])
-                st.session_state["Data_Source"] = "the bundled Lee County example"
-                _status.update(label = "Lee County loaded.", state = "complete"
-                               , expanded = False)
-    else:
-        ## The archives are committed; the extracted files are not. So a
-        ## fresh clone lands here, and this is the one setup step.
-        st.info(
-            "The bundled Lee County data has not been unpacked yet. It ships "
-            "gzipped to fit on GitHub, and one command unpacks it:\n\n"
-            "```\nuv run python scripts/extract_data.py\n```\n\n"
-            f"Looking in `{_sample['dir']}`. Nothing is downloaded - the "
-            "archives are already in your clone."
-        )
-
-    st.markdown('#####')
-
-    ## ── Option 2: the reader's own county ────────────────────────────────
-    st.markdown('#### :open_file_folder: Option 2 - use your own county')
-    st.markdown(
-        "Florida DOR publishes the NAL and SDF files for every county. "
-        "Upload yours below. The parcel shapefile is optional - without it "
-        "the model uses neighbourhood codes instead of coordinates."
-    )
-
-    ##Loading NAL File
-
-    NAL_Files = st.file_uploader("## Upload NAL file"
-                                , type=["csv"]) 
-    
-    
-    if NAL_Files is not None:
-    # st.markdown(":green[NAL File Loaded!]")
-        if st.session_state["NAL"] is None:
-            with st.spinner("One second just a little tidying up to do!"):
-                st.session_state["NAL"]  = pd.read_csv(NAL_Files
-                                                    , low_memory= False)
-        #print(type(NAL))
-        st.markdown(""":green[ Your NAL loaded successfully! There are """ + str(st.session_state["NAL"].shape[0]) + """ rows of data in your NAL File ]""")
-
-    st.markdown('#####')
-    SDF_Files = st.file_uploader("## Upload SDF file"
-                                , type=["csv"]) 
-
-    if SDF_Files is not None:
-        if st.session_state["SDF"] is None:
-            with st.spinner("One second just a little tidying up to do!"):
-                st.session_state["SDF"]  = pd.read_csv(SDF_Files
-                                                        , low_memory= False)
-        
-        st.markdown(""":green[ Your SDF loaded successfully! There are """ + str(st.session_state["SDF"].shape[0]) + """ rows of data in your SDF File ]""")
-
-
-    st.markdown('#####')
-
-    ## ⚠️ Why this is a PATH box and not an upload box.
+    ## ---- Five tabs, one per step of the job -------------------------------
     ##
-    ## A shapefile is not one file. It is a set that must stay together:
+    ## This used to be one continuous scroll about 1,400 lines long, with each
+    ## stage revealed by a nested `if` - so the page grew downwards as you
+    ## worked and you could not tell what was coming next.
     ##
-    ##     .shp   the shapes themselves
-    ##     .dbf   the attribute table - this is where PARCEL_ID lives
-    ##     .shx   the index that ties the two together
-    ##     .prj   the projection: WHERE on the planet those shapes are
+    ## Tabs make the shape of the job visible: load, prepare, build, read,
+    ## ask. The order is the order you do them in.
     ##
-    ## Upload only the .shp and there is no PARCEL_ID to match against the
-    ## roll, so it cannot be used at all. Pointing at the .shp on disk lets
-    ## the library pick up its siblings, which is what it expects.
-    ##
-    ## 📌 If your county did not ship a .prj - ours did not - the shapes
-    ## load with no idea where they are. Pick your coordinate system in the
-    ## sidebar; for west Florida that is EPSG:2237.
-    GIS_File_Path = st.text_input(
-        "Path to your parcel shapefile (the .shp)"
-        , placeholder = r"C:\path\to\your_county_parcels.shp"
-        , help = "Keep the .shp, .dbf, .shx and .prj together in one folder."
-    )
-    
-    if st.button("Load GIS File"):
-        with st.status("Loading your GIS File... This may take a few seconds", expanded=True) as status_message:
-            ## 🩹 This used to do GIS_File_Path.replace("/", "\\"), which
-            ## hardcoded Windows separators and broke any path a macOS or
-            ## Linux reader typed. Path() handles either on every platform.
-            st.session_state["GIS"] = read_parcel_shapes(Path(GIS_File_Path.strip()))
-            status_message.update(label = "Parcel shapes loaded."
-                                  , state = "complete"
-                                  , expanded = False)
+    ## WARNING: the gating moved INSIDE the tabs, not onto the tab bar. Every
+    ## tab is always clickable, and each one checks its own precondition and
+    ## says what to do first. Disabling tabs would hide the workflow; this
+    ## shows it and still makes it impossible to build a model before merging.
+    tab_data, tab_prep, tab_model, tab_results, tab_chat = st.tabs([
+        "1. Load Data"
+        , "2. Prepare"
+        , "3. Build Model"
+        , "4. Results"
+        , "5. Ask Questions"
+    ])
 
-    if st.session_state["GIS"] is not None:
-        st.markdown(
-            ":green[Parcel shapes loaded: "
-            + f"{st.session_state['GIS'].shape[0]:,} parcels, "
-            + f"CRS {st.session_state['GIS'].crs}]"
-        )
-        st.caption(
-            "If your terminal showed an `organizePolygons()` warning while "
-            "these loaded, nothing is wrong. It means some parcels in your "
-            "county are drawn with holes in them, or with too few points to "
-            "be a polygon - both normal on a real roll. We leave the warning "
-            "visible because it tells you something about your data."
-        )
-
-
-    if st.session_state['Cost_Of_Sale_Adjustment_Toggle'] == True:
-        st.markdown('##')
-        st.markdown('## Set DR 493 Adjustments')
+    with tab_data:
+        st.markdown('## Load Your Data')
         st.write("---")
 
-        ## No `index =` - the starting code comes from session state, which
-        ## is seeded further up. Passing both means this default is silently
-        ## discarded; see the note by that seed.
-        st.selectbox("Select DOR Code to Adjust"
-                        , list(st.session_state["DOR_COS_ADJ_DICT"].keys())
-                        , key = 'current_Adjust_dor'
-                        , on_change = update_COS_Input
-                        , help = "DOR use code. The cost-of-sale adjustment "
-                                 "is applied per code, so you can set a "
-                                 "different one for vacant land than for "
-                                 "single-family homes."
-                        )
+        ## ── Option 1: the bundled Lee County example ─────────────────────────
+        st.markdown('#### :package: Option 1 - try it on the bundled example')
 
-        st.markdown('##')
+        _sample = find_sample_data()
 
-        new_COS_ADJ =    st.number_input("Set Adjustments"
-                            , key = "COS_ADJ_KEY"
-                            , min_value = 0.0
-                            , max_value = 2.0
-                            , step = .01)                                                    
+        if _sample["nal"] and _sample["sdf"]:
+            st.markdown(
+                "One real county roll ships with this repository: **Lee County, "
+                "Florida**, used with the county's permission. It is the same data "
+                "the notebook walks through, so you can compare the two."
+            )
+            if st.button("Load the Lee County example"
+                         , use_container_width = True
+                         , type = "primary"):
+                with st.status("Reading the roll... the parcel shapes take a few "
+                               "seconds", expanded = True) as _status:
+                    st.write("parcels...")
+                    st.session_state["NAL"] = pd.read_csv(_sample["nal"], low_memory = False)
+                    st.write("sales...")
+                    st.session_state["SDF"] = pd.read_csv(_sample["sdf"], low_memory = False)
+                    if _sample["shp"]:
+                        st.write("parcel shapes... (a GDAL warning on the "
+                                 "terminal here is normal - see below)")
+                        st.session_state["GIS"] = read_parcel_shapes(_sample["shp"])
+                    st.session_state["Data_Source"] = "the bundled Lee County example"
+                    _status.update(label = "Lee County loaded.", state = "complete"
+                                   , expanded = False)
+        else:
+            ## The archives are committed; the extracted files are not. So a
+            ## fresh clone lands here, and this is the one setup step.
+            st.info(
+                "The bundled Lee County data has not been unpacked yet. It ships "
+                "gzipped to fit on GitHub, and one command unpacks it:\n\n"
+                "```\nuv run python scripts/extract_data.py\n```\n\n"
+                f"Looking in `{_sample['dir']}`. Nothing is downloaded - the "
+                "archives are already in your clone."
+            )
 
-        st.markdown('##')
+        st.markdown('#####')
 
-        if(st.button("Update the DR 493 Adjustment")):
-            with st.spinner("Applying the Update!"):
-                print('The New COS adjustment is ' + str(new_COS_ADJ) + ' for ' + st.session_state['current_Adjust_dor'] )
-                st.session_state["DOR_COS_ADJ_DICT"][st.session_state['current_Adjust_dor'] ] = new_COS_ADJ
+        ## ── Option 2: the reader's own county ────────────────────────────────
+        st.markdown('#### :open_file_folder: Option 2 - use your own county')
+        st.markdown(
+            "Florida DOR publishes the NAL and SDF files for every county. "
+            "Upload yours below. The parcel shapefile is optional - without it "
+            "the model uses neighbourhood codes instead of coordinates."
+        )
 
+        ##Loading NAL File
 
+        NAL_Files = st.file_uploader("## Upload NAL file"
+                                    , type=["csv"]) 
+    
+    
+        if NAL_Files is not None:
+        # st.markdown(":green[NAL File Loaded!]")
+            if st.session_state["NAL"] is None:
+                with st.spinner("One second just a little tidying up to do!"):
+                    st.session_state["NAL"]  = pd.read_csv(NAL_Files
+                                                        , low_memory= False)
+            #print(type(NAL))
+            st.markdown(""":green[ Your NAL loaded successfully! There are """ + str(st.session_state["NAL"].shape[0]) + """ rows of data in your NAL File ]""")
 
+        st.markdown('#####')
+        SDF_Files = st.file_uploader("## Upload SDF file"
+                                    , type=["csv"]) 
 
-
-
-
-
-
-
-
+        if SDF_Files is not None:
+            if st.session_state["SDF"] is None:
+                with st.spinner("One second just a little tidying up to do!"):
+                    st.session_state["SDF"]  = pd.read_csv(SDF_Files
+                                                            , low_memory= False)
+        
+            st.markdown(""":green[ Your SDF loaded successfully! There are """ + str(st.session_state["SDF"].shape[0]) + """ rows of data in your SDF File ]""")
 
 
         st.markdown('#####')
 
+        ## ⚠️ Why this is a PATH box and not an upload box.
+        ##
+        ## A shapefile is not one file. It is a set that must stay together:
+        ##
+        ##     .shp   the shapes themselves
+        ##     .dbf   the attribute table - this is where PARCEL_ID lives
+        ##     .shx   the index that ties the two together
+        ##     .prj   the projection: WHERE on the planet those shapes are
+        ##
+        ## Upload only the .shp and there is no PARCEL_ID to match against the
+        ## roll, so it cannot be used at all. Pointing at the .shp on disk lets
+        ## the library pick up its siblings, which is what it expects.
+        ##
+        ## 📌 If your county did not ship a .prj - ours did not - the shapes
+        ## load with no idea where they are. Pick your coordinate system in the
+        ## sidebar; for west Florida that is EPSG:2237.
+        GIS_File_Path = st.text_input(
+            "Path to your parcel shapefile (the .shp)"
+            , placeholder = r"C:\path\to\your_county_parcels.shp"
+            , help = "Keep the .shp, .dbf, .shx and .prj together in one folder."
+        )
+    
+        if st.button("Load GIS File"):
+            with st.status("Loading your GIS File... This may take a few seconds", expanded=True) as status_message:
+                ## 🩹 This used to do GIS_File_Path.replace("/", "\\"), which
+                ## hardcoded Windows separators and broke any path a macOS or
+                ## Linux reader typed. Path() handles either on every platform.
+                st.session_state["GIS"] = read_parcel_shapes(Path(GIS_File_Path.strip()))
+                status_message.update(label = "Parcel shapes loaded."
+                                      , state = "complete"
+                                      , expanded = False)
 
-    ## ── What is actually loaded right now ────────────────────────────────
-    ## One line, whichever route was taken. It survives a rerun because it
-    ## reads session state rather than the button that was clicked.
-    if st.session_state["NAL"] is not None or st.session_state["SDF"] is not None:
-        _loaded = []
-        if st.session_state["NAL"] is not None:
-            _loaded.append(f"**{st.session_state['NAL'].shape[0]:,}** parcels")
-        if st.session_state["SDF"] is not None:
-            _loaded.append(f"**{st.session_state['SDF'].shape[0]:,}** sales")
         if st.session_state["GIS"] is not None:
-            _loaded.append(f"**{st.session_state['GIS'].shape[0]:,}** parcel shapes")
+            st.markdown(
+                ":green[Parcel shapes loaded: "
+                + f"{st.session_state['GIS'].shape[0]:,} parcels, "
+                + f"CRS {st.session_state['GIS'].crs}]"
+            )
+            st.caption(
+                "If your terminal showed an `organizePolygons()` warning while "
+                "these loaded, nothing is wrong. It means some parcels in your "
+                "county are drawn with holes in them, or with too few points to "
+                "be a polygon - both normal on a real roll. We leave the warning "
+                "visible because it tells you something about your data."
+            )
 
-        _from = st.session_state["Data_Source"]
-        st.success("Loaded" + (f" from {_from}" if _from else "") + ": "
-                   + " | ".join(_loaded))
 
-        if st.session_state["SDF"] is None:
-            st.warning("A sales file (SDF) is still needed before the data "
-                       "can be merged - a model needs sales to learn from.")
+        ## ── What is actually loaded right now ────────────────────────────────
+        ## One line, whichever route was taken. It survives a rerun because it
+        ## reads session state rather than the button that was clicked.
+        if st.session_state["NAL"] is not None or st.session_state["SDF"] is not None:
+            _loaded = []
+            if st.session_state["NAL"] is not None:
+                _loaded.append(f"**{st.session_state['NAL'].shape[0]:,}** parcels")
+            if st.session_state["SDF"] is not None:
+                _loaded.append(f"**{st.session_state['SDF'].shape[0]:,}** sales")
+            if st.session_state["GIS"] is not None:
+                _loaded.append(f"**{st.session_state['GIS'].shape[0]:,}** parcel shapes")
 
-    st.markdown('#####')
+            _from = st.session_state["Data_Source"]
+            st.success("Loaded" + (f" from {_from}" if _from else "") + ": "
+                       + " | ".join(_loaded))
 
-    ## Everything below needs BOTH files. There is no longer a path where
-    ## the app reads a roll off disk by itself, so both must really be here.
-    if (st.session_state["SDF"] is not None) and (st.session_state["NAL"] is not None):
-        st.markdown('##')
-        st.markdown('## Data Pre-Processing')
-        st.write("---")
-        #st.markdown('##')
+            if st.session_state["SDF"] is None:
+                st.warning("A sales file (SDF) is still needed before the data "
+                           "can be merged - a model needs sales to learn from.")
 
-        left, middle = st.columns([.3 , .7])
+        st.markdown('#####')
 
-        if (left.button("Merge and Preprocess My Files", use_container_width=True)) :
-            with st.spinner("Hang on tight as I glue all your data together!"):
-                st.session_state["NAL_merged"] = Merge_data(st.session_state["NAL"] , st.session_state["SDF"].copy() , st.session_state["GIS"] ).copy()
+        ## Everything below needs BOTH files. There is no longer a path where
+        ## the app reads a roll off disk by itself, so both must really be here.
 
-            st.session_state["preprocesing_ran"]  = True
-
-        if (st.session_state["preprocesing_ran"] == True):
-            middle.markdown(""":green[ Your Data has been merged and Pre Processed View the results Below!]""")
-
-        if st.session_state["NAL_merged"] is not None:
+    with tab_prep:
+        if st.session_state['Cost_Of_Sale_Adjustment_Toggle'] == True:
             st.markdown('##')
-            with st.expander("View Merged Data"):
-                st.dataframe(st.session_state["NAL_merged"].head(20))
+            st.markdown('## Set DR 493 Adjustments')
+            st.write("---")
+
+            ## No `index =` - the starting code comes from session state, which
+            ## is seeded further up. Passing both means this default is silently
+            ## discarded; see the note by that seed.
+            st.selectbox("Select DOR Code to Adjust"
+                            , list(st.session_state["DOR_COS_ADJ_DICT"].keys())
+                            , key = 'current_Adjust_dor'
+                            , on_change = update_COS_Input
+                            , help = "DOR use code. The cost-of-sale adjustment "
+                                     "is applied per code, so you can set a "
+                                     "different one for vacant land than for "
+                                     "single-family homes."
+                            )
+
+            st.markdown('##')
+
+            new_COS_ADJ =    st.number_input("Set Adjustments"
+                                , key = "COS_ADJ_KEY"
+                                , min_value = 0.0
+                                , max_value = 2.0
+                                , step = .01)                                                    
+
+            st.markdown('##')
+
+            if(st.button("Update the DR 493 Adjustment")):
+                with st.spinner("Applying the Update!"):
+                    print('The New COS adjustment is ' + str(new_COS_ADJ) + ' for ' + st.session_state['current_Adjust_dor'] )
+                    st.session_state["DOR_COS_ADJ_DICT"][st.session_state['current_Adjust_dor'] ] = new_COS_ADJ
 
 
-        if st.session_state["preprocesing_ran"] == True:
+
+
+
+
+
+
+
+
+
+
+
+            st.markdown('#####')
+
+
+
+        st.markdown('##')
+
+        if (st.session_state["SDF"] is None) or (st.session_state["NAL"] is None):
+            st.info(
+                "Load a parcel file (NAL) and a sales file (SDF) on the "
+                "**1. Load Data** tab first. A model needs sales to learn from."
+            )
+        else:
+            st.markdown('##')
+            st.markdown('## Data Pre-Processing')
+            st.write("---")
+            #st.markdown('##')
+
+            left, middle = st.columns([.3 , .7])
+
+            if (left.button("Merge and Preprocess My Files", use_container_width=True)) :
+                with st.spinner("Hang on tight as I glue all your data together!"):
+                    st.session_state["NAL_merged"] = Merge_data(st.session_state["NAL"] , st.session_state["SDF"].copy() , st.session_state["GIS"] ).copy()
+
+                st.session_state["preprocesing_ran"]  = True
+
+            if (st.session_state["preprocesing_ran"] == True):
+                middle.markdown(""":green[ Your Data has been merged and Pre Processed View the results Below!]""")
+
+            if st.session_state["NAL_merged"] is not None:
+                st.markdown('##')
+                with st.expander("View Merged Data"):
+                    st.dataframe(st.session_state["NAL_merged"].head(20))
+
+
+
+    with tab_model:
+
+        if st.session_state["preprocesing_ran"] != True:
+            st.info(
+                "Merge your files on the **2. Prepare** tab first. That is "
+                "where the parcels, the sales and the parcel shapes are joined "
+                "into the single table the model trains on."
+            )
+        else:
             with st.form(" Build Model Form" , border= False,  clear_on_submit= False):
                 st.markdown('##')
                 st.markdown('## Build Machine Learning Model')
@@ -3753,931 +3811,949 @@ else:
                         st.success(f'✅  We have successfully built some really cool models!  :tada:')  
                         st.session_state["Model_ran"] = True
 
-            if st.session_state["Model_ran"] == True:
-                # with st.spinner('Wait for it....'):
-                #     time.sleep(5)
-                st.markdown('##')
-                st.markdown('## Model(s) Performance')
-                st.write("---")
 
-                if st.session_state["sfr_preformance_dict"] is not None: 
+    with tab_results:
 
-                    st.markdown('###')
-                    st.markdown("### :house: SFR Model Performance:")
+        if st.session_state["Model_ran"] != True:
+            st.info(
+                "Build a model on the **3. Build Model** tab first, and its "
+                "performance will appear here."
+            )
+        else:
+            # with st.spinner('Wait for it....'):
+            #     time.sleep(5)
+            st.markdown('##')
+            st.markdown('## Model(s) Performance')
+            st.write("---")
 
-                    sfr_left, sfr_middle = st.columns([.6 , .4])
+            if st.session_state["sfr_preformance_dict"] is not None: 
 
-                    sfr_left.markdown("**Test Data Size Before Trimming**:")
-                    sfr_middle.markdown(str(st.session_state["sfr_preformance_dict"]["Number of Records Before Trimming Test"]))
-                    sfr_left.markdown("**Test Data Size After Trimming**:")
-                    sfr_middle.markdown(str(st.session_state["sfr_preformance_dict"]["Number of Records After Trimming Test"]))
+                st.markdown('###')
+                st.markdown("### :house: SFR Model Performance:")
 
-                    st.markdown('####')
+                sfr_left, sfr_middle = st.columns([.6 , .4])
 
-                    sfr_radio_left,sfr_radio_right = st.columns([.5 , .5])
+                sfr_left.markdown("**Test Data Size Before Trimming**:")
+                sfr_middle.markdown(str(st.session_state["sfr_preformance_dict"]["Number of Records Before Trimming Test"]))
+                sfr_left.markdown("**Test Data Size After Trimming**:")
+                sfr_middle.markdown(str(st.session_state["sfr_preformance_dict"]["Number of Records After Trimming Test"]))
 
-                    train_stats_type = sfr_radio_left.radio('**Training Model Results are Calculated on :**'
-                                                            , ["Un-Trimmed Data" ,'Trimmed Data']
-                                                            , index  = 0 )
+                st.markdown('####')
+
+                sfr_radio_left,sfr_radio_right = st.columns([.5 , .5])
+
+                train_stats_type = sfr_radio_left.radio('**Training Model Results are Calculated on :**'
+                                                        , ["Un-Trimmed Data" ,'Trimmed Data']
+                                                        , index  = 0 )
                     
                     
-                    test_stats_type = sfr_radio_right.radio('**Test Model Results are Calculated on :**'
-                                        , ["Un-Trimmed Data" ,'Trimmed Data']
-                                        , index = 1)            
+                test_stats_type = sfr_radio_right.radio('**Test Model Results are Calculated on :**'
+                                    , ["Un-Trimmed Data" ,'Trimmed Data']
+                                    , index = 1)            
+
+
+                st.markdown('#####')
+
+                sfr_m_left , sfr_m_middle, sfr_m_right = st.columns([.5 , .25 , .25])
+
+                sfr_m_left.markdown("**Model Metric**")
+                sfr_m_middle.markdown("**Training Pefrormance**")
+                sfr_m_right.markdown("**Test Pefrormance**")
+                sfr_m_left.markdown('')
+                sfr_m_middle.markdown('')
+                sfr_m_right.markdown('')
+
+                train_stat_r_square = st.session_state["sfr_preformance_dict"]["Train R Squared"]
+                train_stat_weighted_mean_sale_ratio = st.session_state["sfr_preformance_dict"]["Train Weighted Mean"]
+                train_stat_COD = st.session_state["sfr_preformance_dict"]["Train COD"]
+                train_stat_PRD = st.session_state["sfr_preformance_dict"]["Train PRD"]
+                train_stat_MAE = st.session_state["sfr_preformance_dict"]["Train MAE"]
+
+                if train_stats_type == "Trimmed Data":
+                    train_stat_r_square = st.session_state["sfr_preformance_dict"]["Trimmed Train R Squared"]
+                    train_stat_weighted_mean_sale_ratio = st.session_state["sfr_preformance_dict"]["Trimmed Train Weighted Mean"]
+                    train_stat_COD = st.session_state["sfr_preformance_dict"]["Trimmed Train COD"]
+                    train_stat_PRD = st.session_state["sfr_preformance_dict"]["Trimmed Train PRD"]
+                    train_stat_MAE = st.session_state["sfr_preformance_dict"]["Trimmed Train MAE"]
+
+
+                test_stat_r_square = st.session_state["sfr_preformance_dict"]["Test R Squared"]
+                test_stat_weighted_mean_sale_ratio = st.session_state["sfr_preformance_dict"]["Test Weighted Mean"]
+                test_stat_COD = st.session_state["sfr_preformance_dict"]["Test COD"]                
+                test_stat_PRD = st.session_state["sfr_preformance_dict"]["Test PRD"]
+                test_stat_MAE = st.session_state["sfr_preformance_dict"]["Test MAE"]
+
+                if test_stats_type == "Trimmed Data":
+                    test_stat_r_square = st.session_state["sfr_preformance_dict"]["Trimmed Test R Squared"]
+                    test_stat_weighted_mean_sale_ratio = st.session_state["sfr_preformance_dict"]["Trimmed Test Weighted Mean"] 
+                    test_stat_COD = st.session_state["sfr_preformance_dict"]["Trimmed Test COD"]
+                    test_stat_PRD = st.session_state["sfr_preformance_dict"]["Trimmed Test PRD"]
+                    test_stat_MAE = st.session_state["sfr_preformance_dict"]["Trimmed Test MAE"]
+
+
+                #test_stat_r_square = st.session_state["sfr_preformance_dict"]["Trimmed Test R Squared"]
+
+
+
+                sfr_m_left.markdown("**R Squared**")
+                sfr_perf_color = 'green' if train_stat_r_square > 0.8 else 'orange'
+                if train_stat_r_square < .5 :
+                    sfr_perf_color = 'red'
+                sfr_m_middle.markdown( ":" + sfr_perf_color + "["  + str(train_stat_r_square ) + "]"   )
+                sfr_perf_color = 'green' if test_stat_r_square> 0.8 else 'orange'
+                if test_stat_r_square < .5 :
+                    sfr_perf_color = 'red'
+                sfr_m_right.markdown( ":" + sfr_perf_color + "["  + str(test_stat_r_square) + "]"   )
+
+                sfr_m_left.markdown("**Weighted Mean Sale Ratio**")
+                sfr_perf_color = 'green' if abs(train_stat_weighted_mean_sale_ratio - 1 ) <= 0.03 else 'orange'
+                if abs(train_stat_weighted_mean_sale_ratio - 1 ) > 0.05 :
+                    sfr_perf_color = 'red'
+                sfr_m_middle.markdown( ":" + sfr_perf_color + "["  + str(train_stat_weighted_mean_sale_ratio) + "]"   )
+                sfr_perf_color = 'green' if abs(test_stat_weighted_mean_sale_ratio - 1 ) <= 0.03 else 'orange'
+                if abs(test_stat_weighted_mean_sale_ratio - 1 ) > 0.05 :
+                    sfr_perf_color = 'red'
+                sfr_m_right.markdown( ":" + sfr_perf_color + "["  + str(test_stat_weighted_mean_sale_ratio) + "]"   )
+
+                sfr_m_left.markdown("**COD**")
+                sfr_perf_color = 'green' if train_stat_COD < 10 else 'orange'
+                if train_stat_COD > 15 :
+                    sfr_perf_color = 'red'
+                sfr_m_middle.markdown( ":" + sfr_perf_color + "["  + str(train_stat_COD) + "]"   )
+                sfr_perf_color = 'green' if test_stat_COD < 10 else 'orange'
+                if test_stat_COD > 15 :
+                    sfr_perf_color = 'red'
+                sfr_m_right.markdown( ":" + sfr_perf_color + "["  + str(test_stat_COD) + "]"   )
+
+                sfr_m_left.markdown("**PRD**")
+                sfr_perf_color = 'green' if (train_stat_PRD   > .97 ) and (train_stat_PRD   > 1.02 ) else 'orange'
+                if abs(train_stat_PRD  - 1 ) > .04 :
+                    sfr_perf_color = 'red'
+                sfr_m_middle.markdown( ":" + sfr_perf_color + "["  + str(train_stat_PRD ) + "]"   )
+                sfr_perf_color = 'green' if (test_stat_PRD < .97) and (test_stat_PRD > 1.02)  else 'orange'
+                if abs(test_stat_PRD - 1 )  > 0.04 :
+                    sfr_perf_color = 'red'
+                sfr_m_right.markdown( ":" + sfr_perf_color + "["  + str(test_stat_PRD) + "]"   )
+
+                sfr_m_left.markdown("**Mean Absolute Error**")
+            
+                sfr_m_middle.markdown(  str(round(train_stat_MAE,0))  )
+        
+                sfr_m_right.markdown( str(round(test_stat_MAE,0)) )
+
+
+                if  st.session_state['Model_Performance_Toggle']:
+                    st.markdown('#####')
+                    st.markdown('#####')
+
+                    st.markdown('#### Graphs to compare Model Performance to NAL Values On the Trimmed Test Set (SFR Model)')
+
+                    graph_metric = st.radio(
+                                            "## Model Metric:"
+                                            ,['R squared' , 'Weighted Mean Sale Ratio' , 'COD' , 'PRD' , 'Mean Absolute Error']
+                                            , horizontal = True
+                                            , index = 0
+                                        )                    
+
+
+                    if graph_metric == 'R squared':  
+                            
+                        graph_data = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["sfr_preformance_dict"]["Trimmed Test R Squared"] , st.session_state["sfr_preformance_dict"]["Trimmed Test NAL R Squared"]] }
+                        graph_lab = 'R Squared'
+
+                    elif graph_metric == 'Weighted Mean Sale Ratio':
+                        graph_data = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["sfr_preformance_dict"]["Trimmed Test Weighted Mean"] , st.session_state["sfr_preformance_dict"]["Trimmed Test NAL Weighted Mean"]] }
+                        graph_lab = 'Weighted Mean Sale Ratio'
+
+                    elif graph_metric == 'COD':
+                        graph_data = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["sfr_preformance_dict"]["Trimmed Test COD"] , st.session_state["sfr_preformance_dict"]["Trimmed Test NAL COD"]] }
+                        graph_lab = 'COD'
+
+                    elif graph_metric == 'PRD':
+                        graph_data = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["sfr_preformance_dict"]["Trimmed Test PRD"] , st.session_state["sfr_preformance_dict"]["Trimmed Test NAL PRD"]] }
+                        graph_lab = 'PRD'    
+
+                    elif graph_metric == 'Mean Absolute Error':     
+                        graph_data = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["sfr_preformance_dict"]["Trimmed Test MAE"] , st.session_state["sfr_preformance_dict"]["Trimmed Test NAL MAE"]] }
+                        graph_lab = 'Mean Absolute Error'
 
 
                     st.markdown('#####')
-
-                    sfr_m_left , sfr_m_middle, sfr_m_right = st.columns([.5 , .25 , .25])
-
-                    sfr_m_left.markdown("**Model Metric**")
-                    sfr_m_middle.markdown("**Training Pefrormance**")
-                    sfr_m_right.markdown("**Test Pefrormance**")
-                    sfr_m_left.markdown('')
-                    sfr_m_middle.markdown('')
-                    sfr_m_right.markdown('')
-
-                    train_stat_r_square = st.session_state["sfr_preformance_dict"]["Train R Squared"]
-                    train_stat_weighted_mean_sale_ratio = st.session_state["sfr_preformance_dict"]["Train Weighted Mean"]
-                    train_stat_COD = st.session_state["sfr_preformance_dict"]["Train COD"]
-                    train_stat_PRD = st.session_state["sfr_preformance_dict"]["Train PRD"]
-                    train_stat_MAE = st.session_state["sfr_preformance_dict"]["Train MAE"]
-
-                    if train_stats_type == "Trimmed Data":
-                        train_stat_r_square = st.session_state["sfr_preformance_dict"]["Trimmed Train R Squared"]
-                        train_stat_weighted_mean_sale_ratio = st.session_state["sfr_preformance_dict"]["Trimmed Train Weighted Mean"]
-                        train_stat_COD = st.session_state["sfr_preformance_dict"]["Trimmed Train COD"]
-                        train_stat_PRD = st.session_state["sfr_preformance_dict"]["Trimmed Train PRD"]
-                        train_stat_MAE = st.session_state["sfr_preformance_dict"]["Trimmed Train MAE"]
-
-
-                    test_stat_r_square = st.session_state["sfr_preformance_dict"]["Test R Squared"]
-                    test_stat_weighted_mean_sale_ratio = st.session_state["sfr_preformance_dict"]["Test Weighted Mean"]
-                    test_stat_COD = st.session_state["sfr_preformance_dict"]["Test COD"]                
-                    test_stat_PRD = st.session_state["sfr_preformance_dict"]["Test PRD"]
-                    test_stat_MAE = st.session_state["sfr_preformance_dict"]["Test MAE"]
-
-                    if test_stats_type == "Trimmed Data":
-                        test_stat_r_square = st.session_state["sfr_preformance_dict"]["Trimmed Test R Squared"]
-                        test_stat_weighted_mean_sale_ratio = st.session_state["sfr_preformance_dict"]["Trimmed Test Weighted Mean"] 
-                        test_stat_COD = st.session_state["sfr_preformance_dict"]["Trimmed Test COD"]
-                        test_stat_PRD = st.session_state["sfr_preformance_dict"]["Trimmed Test PRD"]
-                        test_stat_MAE = st.session_state["sfr_preformance_dict"]["Trimmed Test MAE"]
-
-
-                    #test_stat_r_square = st.session_state["sfr_preformance_dict"]["Trimmed Test R Squared"]
-
-
-
-                    sfr_m_left.markdown("**R Squared**")
-                    sfr_perf_color = 'green' if train_stat_r_square > 0.8 else 'orange'
-                    if train_stat_r_square < .5 :
-                        sfr_perf_color = 'red'
-                    sfr_m_middle.markdown( ":" + sfr_perf_color + "["  + str(train_stat_r_square ) + "]"   )
-                    sfr_perf_color = 'green' if test_stat_r_square> 0.8 else 'orange'
-                    if test_stat_r_square < .5 :
-                        sfr_perf_color = 'red'
-                    sfr_m_right.markdown( ":" + sfr_perf_color + "["  + str(test_stat_r_square) + "]"   )
-
-                    sfr_m_left.markdown("**Weighted Mean Sale Ratio**")
-                    sfr_perf_color = 'green' if abs(train_stat_weighted_mean_sale_ratio - 1 ) <= 0.03 else 'orange'
-                    if abs(train_stat_weighted_mean_sale_ratio - 1 ) > 0.05 :
-                        sfr_perf_color = 'red'
-                    sfr_m_middle.markdown( ":" + sfr_perf_color + "["  + str(train_stat_weighted_mean_sale_ratio) + "]"   )
-                    sfr_perf_color = 'green' if abs(test_stat_weighted_mean_sale_ratio - 1 ) <= 0.03 else 'orange'
-                    if abs(test_stat_weighted_mean_sale_ratio - 1 ) > 0.05 :
-                        sfr_perf_color = 'red'
-                    sfr_m_right.markdown( ":" + sfr_perf_color + "["  + str(test_stat_weighted_mean_sale_ratio) + "]"   )
-
-                    sfr_m_left.markdown("**COD**")
-                    sfr_perf_color = 'green' if train_stat_COD < 10 else 'orange'
-                    if train_stat_COD > 15 :
-                        sfr_perf_color = 'red'
-                    sfr_m_middle.markdown( ":" + sfr_perf_color + "["  + str(train_stat_COD) + "]"   )
-                    sfr_perf_color = 'green' if test_stat_COD < 10 else 'orange'
-                    if test_stat_COD > 15 :
-                        sfr_perf_color = 'red'
-                    sfr_m_right.markdown( ":" + sfr_perf_color + "["  + str(test_stat_COD) + "]"   )
-
-                    sfr_m_left.markdown("**PRD**")
-                    sfr_perf_color = 'green' if (train_stat_PRD   > .97 ) and (train_stat_PRD   > 1.02 ) else 'orange'
-                    if abs(train_stat_PRD  - 1 ) > .04 :
-                        sfr_perf_color = 'red'
-                    sfr_m_middle.markdown( ":" + sfr_perf_color + "["  + str(train_stat_PRD ) + "]"   )
-                    sfr_perf_color = 'green' if (test_stat_PRD < .97) and (test_stat_PRD > 1.02)  else 'orange'
-                    if abs(test_stat_PRD - 1 )  > 0.04 :
-                        sfr_perf_color = 'red'
-                    sfr_m_right.markdown( ":" + sfr_perf_color + "["  + str(test_stat_PRD) + "]"   )
-
-                    sfr_m_left.markdown("**Mean Absolute Error**")
-            
-                    sfr_m_middle.markdown(  str(round(train_stat_MAE,0))  )
-        
-                    sfr_m_right.markdown( str(round(test_stat_MAE,0)) )
-
-
-                    if  st.session_state['Model_Performance_Toggle']:
-                        st.markdown('#####')
-                        st.markdown('#####')
-
-                        st.markdown('#### Graphs to compare Model Performance to NAL Values On the Trimmed Test Set (SFR Model)')
-
-                        graph_metric = st.radio(
-                                                "## Model Metric:"
-                                                ,['R squared' , 'Weighted Mean Sale Ratio' , 'COD' , 'PRD' , 'Mean Absolute Error']
-                                                , horizontal = True
-                                                , index = 0
-                                            )                    
-
-
-                        if graph_metric == 'R squared':  
-                            
-                            graph_data = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["sfr_preformance_dict"]["Trimmed Test R Squared"] , st.session_state["sfr_preformance_dict"]["Trimmed Test NAL R Squared"]] }
-                            graph_lab = 'R Squared'
-
-                        elif graph_metric == 'Weighted Mean Sale Ratio':
-                            graph_data = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["sfr_preformance_dict"]["Trimmed Test Weighted Mean"] , st.session_state["sfr_preformance_dict"]["Trimmed Test NAL Weighted Mean"]] }
-                            graph_lab = 'Weighted Mean Sale Ratio'
-
-                        elif graph_metric == 'COD':
-                            graph_data = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["sfr_preformance_dict"]["Trimmed Test COD"] , st.session_state["sfr_preformance_dict"]["Trimmed Test NAL COD"]] }
-                            graph_lab = 'COD'
-
-                        elif graph_metric == 'PRD':
-                            graph_data = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["sfr_preformance_dict"]["Trimmed Test PRD"] , st.session_state["sfr_preformance_dict"]["Trimmed Test NAL PRD"]] }
-                            graph_lab = 'PRD'    
-
-                        elif graph_metric == 'Mean Absolute Error':     
-                            graph_data = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["sfr_preformance_dict"]["Trimmed Test MAE"] , st.session_state["sfr_preformance_dict"]["Trimmed Test NAL MAE"]] }
-                            graph_lab = 'Mean Absolute Error'
-
-
-                        st.markdown('#####')
 
                         
-                        st.bar_chart( pd.DataFrame(graph_data)
-                                    , x = 'Value Source'
+                    st.bar_chart( pd.DataFrame(graph_data)
+                                , x = 'Value Source'
                                     
-                                    , y = 'Metric'
+                                , y = 'Metric'
                                     
-                                    , y_label= graph_lab
+                                , y_label= graph_lab
                                     
-                                    , horizontal = True
+                                , horizontal = True
 
                     
-                                    , height = 200
-                                    , width= 150
-                                    )
+                                , height = 200
+                                , width= 150
+                                )
 
                     
 
-                if st.session_state["Condo_preformance_dict"] is not None: 
+            if st.session_state["Condo_preformance_dict"] is not None: 
 
-                    st.markdown('###')
-                    st.markdown("### :office: Condo Model Performance:")
+                st.markdown('###')
+                st.markdown("### :office: Condo Model Performance:")
 
-                    Condo_left, Condo_middle = st.columns([.6 , .4])
+                Condo_left, Condo_middle = st.columns([.6 , .4])
 
-                    Condo_left.markdown("**Test Data Size Before Trimming**:")
-                    Condo_middle.markdown(str(st.session_state["Condo_preformance_dict"]["Number of Records Before Trimming Test"]))
-                    Condo_left.markdown("**Test Data Size After Trimming**:")
-                    Condo_middle.markdown(str(st.session_state["Condo_preformance_dict"]["Number of Records After Trimming Test"]))
+                Condo_left.markdown("**Test Data Size Before Trimming**:")
+                Condo_middle.markdown(str(st.session_state["Condo_preformance_dict"]["Number of Records Before Trimming Test"]))
+                Condo_left.markdown("**Test Data Size After Trimming**:")
+                Condo_middle.markdown(str(st.session_state["Condo_preformance_dict"]["Number of Records After Trimming Test"]))
 
-                    st.markdown('####')
+                st.markdown('####')
 
-                    Condo_radio_left, Condo_radio_right = st.columns([.5 , .5])
+                Condo_radio_left, Condo_radio_right = st.columns([.5 , .5])
 
-                    train_stats_type_Condo = Condo_radio_left.radio('**Training Model Results are Calculated on :**  '
-                                                            , ["Un-Trimmed Data" ,'Trimmed Data']
-                                                            , index  = 0 )
+                train_stats_type_Condo = Condo_radio_left.radio('**Training Model Results are Calculated on :**  '
+                                                        , ["Un-Trimmed Data" ,'Trimmed Data']
+                                                        , index  = 0 )
                     
                     
-                    test_stats_type_Condo = Condo_radio_right.radio('**Test Model Results are Calculated on :**  '
-                                                                    , ["Un-Trimmed Data" ,'Trimmed Data']
-                                                                    , index = 1)            
+                test_stats_type_Condo = Condo_radio_right.radio('**Test Model Results are Calculated on :**  '
+                                                                , ["Un-Trimmed Data" ,'Trimmed Data']
+                                                                , index = 1)            
+
+
+                st.markdown('#####')
+
+
+                Condo_m_left , Condo_m_middle, Condo_m_right = st.columns([.5 , .25 , .25])
+
+                Condo_m_left.markdown("**Model Metric**")
+                Condo_m_middle.markdown("**Training Pefrormance**")
+                Condo_m_right.markdown("**Test Pefrormance**")
+                Condo_m_left.markdown('')
+                Condo_m_middle.markdown('')
+                Condo_m_right.markdown('')
+
+                Condo_train_stat_r_square = st.session_state["Condo_preformance_dict"]["Train R Squared"]
+                Condo_train_stat_weighted_mean_sale_ratio = st.session_state["Condo_preformance_dict"]["Train Weighted Mean"]
+                Condo_train_stat_COD = st.session_state["Condo_preformance_dict"]["Train COD"]
+                Condo_train_stat_PRD = st.session_state["Condo_preformance_dict"]["Train PRD"]
+                Condo_train_stat_MAE = st.session_state["Condo_preformance_dict"]["Train MAE"]
+
+                if train_stats_type_Condo == "Trimmed Data":
+                    Condo_train_stat_r_square = st.session_state["Condo_preformance_dict"]["Trimmed Train R Squared"]
+                    Condo_train_stat_weighted_mean_sale_ratio = st.session_state["Condo_preformance_dict"]["Trimmed Train Weighted Mean"]
+                    Condo_train_stat_COD = st.session_state["Condo_preformance_dict"]["Trimmed Train COD"]
+                    Condo_train_stat_PRD = st.session_state["Condo_preformance_dict"]["Trimmed Train PRD"]
+                    Condo_train_stat_MAE = st.session_state["Condo_preformance_dict"]["Trimmed Train MAE"]
+
+
+                Condo_test_stat_r_square = st.session_state["Condo_preformance_dict"]["Test R Squared"]
+                Condo_test_stat_weighted_mean_sale_ratio = st.session_state["Condo_preformance_dict"]["Test Weighted Mean"]
+                Condo_test_stat_COD = st.session_state["Condo_preformance_dict"]["Test COD"]                
+                Condo_test_stat_PRD = st.session_state["Condo_preformance_dict"]["Test PRD"]
+                Condo_test_stat_MAE = st.session_state["Condo_preformance_dict"]["Test MAE"]
+
+                if test_stats_type_Condo == "Trimmed Data":
+                    Condo_test_stat_r_square = st.session_state["Condo_preformance_dict"]["Trimmed Test R Squared"]
+                    Condo_test_stat_weighted_mean_sale_ratio = st.session_state["Condo_preformance_dict"]["Trimmed Test Weighted Mean"] 
+                    Condo_test_stat_COD = st.session_state["Condo_preformance_dict"]["Trimmed Test COD"]
+                    Condo_test_stat_PRD = st.session_state["Condo_preformance_dict"]["Trimmed Test PRD"]
+                    Condo_test_stat_MAE = st.session_state["Condo_preformance_dict"]["Trimmed Test MAE"]
+                    
+
+                Condo_m_left.markdown("**R Squared**")
+                Condo_perf_color = 'green' if Condo_train_stat_r_square > 0.8 else 'orange'
+                if Condo_train_stat_r_square < .5 :
+                    Condo_perf_color = 'red'
+                Condo_m_middle.markdown( ":" + Condo_perf_color + "["  + str(Condo_train_stat_r_square ) + "]"   )
+                Condo_perf_color = 'green' if Condo_test_stat_r_square> 0.8 else 'orange'
+                if Condo_test_stat_r_square < .5 :
+                    Condo_perf_color = 'red'
+                Condo_m_right.markdown( ":" + Condo_perf_color + "["  + str(Condo_test_stat_r_square) + "]"   )
+
+                Condo_m_left.markdown("**Weighted Mean Sale Ratio**")
+                Condo_perf_color = 'green' if abs(Condo_train_stat_weighted_mean_sale_ratio - 1 ) <= 0.03 else 'orange'
+                if abs(Condo_train_stat_weighted_mean_sale_ratio - 1 ) > 0.05 :
+                    Condo_perf_color = 'red'
+                Condo_m_middle.markdown( ":" + Condo_perf_color + "["  + str(Condo_train_stat_weighted_mean_sale_ratio) + "]"   )
+                Condo_perf_color = 'green' if abs(Condo_test_stat_weighted_mean_sale_ratio - 1 ) <= 0.03 else 'orange'
+                if abs(Condo_test_stat_weighted_mean_sale_ratio - 1 ) > 0.05 :
+                    Condo_perf_color = 'red'
+                Condo_m_right.markdown( ":" + Condo_perf_color + "["  + str(Condo_test_stat_weighted_mean_sale_ratio) + "]"   )
+
+                Condo_m_left.markdown("**COD**")
+                Condo_perf_color = 'green' if Condo_train_stat_COD < 10 else 'orange'
+                if Condo_train_stat_COD > 15 :
+                    Condo_perf_color = 'red'
+                Condo_m_middle.markdown( ":" + Condo_perf_color + "["  + str(Condo_train_stat_COD) + "]"   )
+                Condo_perf_color = 'green' if Condo_test_stat_COD < 10 else 'orange'
+                if Condo_test_stat_COD > 15 :
+                    Condo_perf_color = 'red'
+                Condo_m_right.markdown( ":" + Condo_perf_color + "["  + str(Condo_test_stat_COD) + "]"   )
+
+                Condo_m_left.markdown("**PRD**")
+                Condo_perf_color = 'green' if (Condo_train_stat_PRD   > .97 ) and (Condo_train_stat_PRD   > 1.02 ) else 'orange'
+                if abs(Condo_train_stat_PRD  - 1 ) > .04 :
+                    Condo_perf_color = 'red'
+                Condo_m_middle.markdown( ":" + Condo_perf_color + "["  + str(Condo_train_stat_PRD ) + "]"   )
+                Condo_perf_color = 'green' if (Condo_test_stat_PRD < .97) and (Condo_test_stat_PRD > 1.02)  else 'orange'
+                if abs(Condo_test_stat_PRD - 1 )  > 0.04 :
+                    Condo_perf_color = 'red'
+                Condo_m_right.markdown( ":" + Condo_perf_color + "["  + str(Condo_test_stat_PRD) + "]"   )
+
+                Condo_m_left.markdown("**Mean Absolute Error**")
+            
+                Condo_m_middle.markdown(  str(round(Condo_train_stat_MAE,0))  )
+        
+                Condo_m_right.markdown( str(round(Condo_test_stat_MAE,0)) )
+
+
+                if  st.session_state['Model_Performance_Toggle']:
+                    st.markdown('#####')
+                    st.markdown('#####')
+
+                    st.markdown('#### Graphs to compare Model Performance to NAL Values On the Trimmed Test Set (Condo Model)')
+
+                    graph_metric_con = st.radio(
+                                            "## Model Metric:"
+                                            ,['R squared ' , 'Weighted Mean Sale Ratio ' , 'COD ' , 'PRD ' , 'Mean Absolute Error ']
+                                            , horizontal = True
+                                            , index = 0
+                                        )                    
+
+
+                    if graph_metric_con == 'R squared ':  
+                            
+                        graph_data_con = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Condo_preformance_dict"]["Trimmed Test R Squared"] , st.session_state["Condo_preformance_dict"]["Trimmed Test NAL R Squared"]] }
+                        graph_lab_con = 'R Squared'
+
+                    elif graph_metric_con == 'Weighted Mean Sale Ratio ':
+                        graph_data_con = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Condo_preformance_dict"]["Trimmed Test Weighted Mean"] , st.session_state["Condo_preformance_dict"]["Trimmed Test NAL Weighted Mean"]] }
+                        graph_lab_con = 'Weighted Mean Sale Ratio'
+
+                    elif graph_metric_con == 'COD ':
+                        graph_data_con = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Condo_preformance_dict"]["Trimmed Test COD"] , st.session_state["Condo_preformance_dict"]["Trimmed Test NAL COD"]] }
+                        graph_lab_con = 'COD'
+
+                    elif graph_metric_con == 'PRD ':
+                        graph_data_con = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Condo_preformance_dict"]["Trimmed Test PRD"] , st.session_state["Condo_preformance_dict"]["Trimmed Test NAL PRD"]] }
+                        graph_lab_con = 'PRD'    
+
+                    elif graph_metric_con == 'Mean Absolute Error ':     
+                        graph_data_con = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Condo_preformance_dict"]["Trimmed Test MAE"] , st.session_state["Condo_preformance_dict"]["Trimmed Test NAL MAE"]] }
+                        graph_lab_con = 'Mean Absolute Error'
 
 
                     st.markdown('#####')
-
-
-                    Condo_m_left , Condo_m_middle, Condo_m_right = st.columns([.5 , .25 , .25])
-
-                    Condo_m_left.markdown("**Model Metric**")
-                    Condo_m_middle.markdown("**Training Pefrormance**")
-                    Condo_m_right.markdown("**Test Pefrormance**")
-                    Condo_m_left.markdown('')
-                    Condo_m_middle.markdown('')
-                    Condo_m_right.markdown('')
-
-                    Condo_train_stat_r_square = st.session_state["Condo_preformance_dict"]["Train R Squared"]
-                    Condo_train_stat_weighted_mean_sale_ratio = st.session_state["Condo_preformance_dict"]["Train Weighted Mean"]
-                    Condo_train_stat_COD = st.session_state["Condo_preformance_dict"]["Train COD"]
-                    Condo_train_stat_PRD = st.session_state["Condo_preformance_dict"]["Train PRD"]
-                    Condo_train_stat_MAE = st.session_state["Condo_preformance_dict"]["Train MAE"]
-
-                    if train_stats_type_Condo == "Trimmed Data":
-                        Condo_train_stat_r_square = st.session_state["Condo_preformance_dict"]["Trimmed Train R Squared"]
-                        Condo_train_stat_weighted_mean_sale_ratio = st.session_state["Condo_preformance_dict"]["Trimmed Train Weighted Mean"]
-                        Condo_train_stat_COD = st.session_state["Condo_preformance_dict"]["Trimmed Train COD"]
-                        Condo_train_stat_PRD = st.session_state["Condo_preformance_dict"]["Trimmed Train PRD"]
-                        Condo_train_stat_MAE = st.session_state["Condo_preformance_dict"]["Trimmed Train MAE"]
-
-
-                    Condo_test_stat_r_square = st.session_state["Condo_preformance_dict"]["Test R Squared"]
-                    Condo_test_stat_weighted_mean_sale_ratio = st.session_state["Condo_preformance_dict"]["Test Weighted Mean"]
-                    Condo_test_stat_COD = st.session_state["Condo_preformance_dict"]["Test COD"]                
-                    Condo_test_stat_PRD = st.session_state["Condo_preformance_dict"]["Test PRD"]
-                    Condo_test_stat_MAE = st.session_state["Condo_preformance_dict"]["Test MAE"]
-
-                    if test_stats_type_Condo == "Trimmed Data":
-                        Condo_test_stat_r_square = st.session_state["Condo_preformance_dict"]["Trimmed Test R Squared"]
-                        Condo_test_stat_weighted_mean_sale_ratio = st.session_state["Condo_preformance_dict"]["Trimmed Test Weighted Mean"] 
-                        Condo_test_stat_COD = st.session_state["Condo_preformance_dict"]["Trimmed Test COD"]
-                        Condo_test_stat_PRD = st.session_state["Condo_preformance_dict"]["Trimmed Test PRD"]
-                        Condo_test_stat_MAE = st.session_state["Condo_preformance_dict"]["Trimmed Test MAE"]
-                    
-
-                    Condo_m_left.markdown("**R Squared**")
-                    Condo_perf_color = 'green' if Condo_train_stat_r_square > 0.8 else 'orange'
-                    if Condo_train_stat_r_square < .5 :
-                        Condo_perf_color = 'red'
-                    Condo_m_middle.markdown( ":" + Condo_perf_color + "["  + str(Condo_train_stat_r_square ) + "]"   )
-                    Condo_perf_color = 'green' if Condo_test_stat_r_square> 0.8 else 'orange'
-                    if Condo_test_stat_r_square < .5 :
-                        Condo_perf_color = 'red'
-                    Condo_m_right.markdown( ":" + Condo_perf_color + "["  + str(Condo_test_stat_r_square) + "]"   )
-
-                    Condo_m_left.markdown("**Weighted Mean Sale Ratio**")
-                    Condo_perf_color = 'green' if abs(Condo_train_stat_weighted_mean_sale_ratio - 1 ) <= 0.03 else 'orange'
-                    if abs(Condo_train_stat_weighted_mean_sale_ratio - 1 ) > 0.05 :
-                        Condo_perf_color = 'red'
-                    Condo_m_middle.markdown( ":" + Condo_perf_color + "["  + str(Condo_train_stat_weighted_mean_sale_ratio) + "]"   )
-                    Condo_perf_color = 'green' if abs(Condo_test_stat_weighted_mean_sale_ratio - 1 ) <= 0.03 else 'orange'
-                    if abs(Condo_test_stat_weighted_mean_sale_ratio - 1 ) > 0.05 :
-                        Condo_perf_color = 'red'
-                    Condo_m_right.markdown( ":" + Condo_perf_color + "["  + str(Condo_test_stat_weighted_mean_sale_ratio) + "]"   )
-
-                    Condo_m_left.markdown("**COD**")
-                    Condo_perf_color = 'green' if Condo_train_stat_COD < 10 else 'orange'
-                    if Condo_train_stat_COD > 15 :
-                        Condo_perf_color = 'red'
-                    Condo_m_middle.markdown( ":" + Condo_perf_color + "["  + str(Condo_train_stat_COD) + "]"   )
-                    Condo_perf_color = 'green' if Condo_test_stat_COD < 10 else 'orange'
-                    if Condo_test_stat_COD > 15 :
-                        Condo_perf_color = 'red'
-                    Condo_m_right.markdown( ":" + Condo_perf_color + "["  + str(Condo_test_stat_COD) + "]"   )
-
-                    Condo_m_left.markdown("**PRD**")
-                    Condo_perf_color = 'green' if (Condo_train_stat_PRD   > .97 ) and (Condo_train_stat_PRD   > 1.02 ) else 'orange'
-                    if abs(Condo_train_stat_PRD  - 1 ) > .04 :
-                        Condo_perf_color = 'red'
-                    Condo_m_middle.markdown( ":" + Condo_perf_color + "["  + str(Condo_train_stat_PRD ) + "]"   )
-                    Condo_perf_color = 'green' if (Condo_test_stat_PRD < .97) and (Condo_test_stat_PRD > 1.02)  else 'orange'
-                    if abs(Condo_test_stat_PRD - 1 )  > 0.04 :
-                        Condo_perf_color = 'red'
-                    Condo_m_right.markdown( ":" + Condo_perf_color + "["  + str(Condo_test_stat_PRD) + "]"   )
-
-                    Condo_m_left.markdown("**Mean Absolute Error**")
-            
-                    Condo_m_middle.markdown(  str(round(Condo_train_stat_MAE,0))  )
-        
-                    Condo_m_right.markdown( str(round(Condo_test_stat_MAE,0)) )
-
-
-                    if  st.session_state['Model_Performance_Toggle']:
-                        st.markdown('#####')
-                        st.markdown('#####')
-
-                        st.markdown('#### Graphs to compare Model Performance to NAL Values On the Trimmed Test Set (Condo Model)')
-
-                        graph_metric_con = st.radio(
-                                                "## Model Metric:"
-                                                ,['R squared ' , 'Weighted Mean Sale Ratio ' , 'COD ' , 'PRD ' , 'Mean Absolute Error ']
-                                                , horizontal = True
-                                                , index = 0
-                                            )                    
-
-
-                        if graph_metric_con == 'R squared ':  
-                            
-                            graph_data_con = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Condo_preformance_dict"]["Trimmed Test R Squared"] , st.session_state["Condo_preformance_dict"]["Trimmed Test NAL R Squared"]] }
-                            graph_lab_con = 'R Squared'
-
-                        elif graph_metric_con == 'Weighted Mean Sale Ratio ':
-                            graph_data_con = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Condo_preformance_dict"]["Trimmed Test Weighted Mean"] , st.session_state["Condo_preformance_dict"]["Trimmed Test NAL Weighted Mean"]] }
-                            graph_lab_con = 'Weighted Mean Sale Ratio'
-
-                        elif graph_metric_con == 'COD ':
-                            graph_data_con = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Condo_preformance_dict"]["Trimmed Test COD"] , st.session_state["Condo_preformance_dict"]["Trimmed Test NAL COD"]] }
-                            graph_lab_con = 'COD'
-
-                        elif graph_metric_con == 'PRD ':
-                            graph_data_con = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Condo_preformance_dict"]["Trimmed Test PRD"] , st.session_state["Condo_preformance_dict"]["Trimmed Test NAL PRD"]] }
-                            graph_lab_con = 'PRD'    
-
-                        elif graph_metric_con == 'Mean Absolute Error ':     
-                            graph_data_con = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Condo_preformance_dict"]["Trimmed Test MAE"] , st.session_state["Condo_preformance_dict"]["Trimmed Test NAL MAE"]] }
-                            graph_lab_con = 'Mean Absolute Error'
-
-
-                        st.markdown('#####')
 
                         
-                        st.bar_chart( pd.DataFrame(graph_data_con)
-                                    , x = 'Value Source'
+                    st.bar_chart( pd.DataFrame(graph_data_con)
+                                , x = 'Value Source'
                                     
-                                    , y = 'Metric'
+                                , y = 'Metric'
                                     
-                                    , y_label= graph_lab_con
+                                , y_label= graph_lab_con
                                     
-                                    , horizontal = True
+                                , horizontal = True
 
                     
-                                    , height = 200
-                                    , width= 150
-                                    )
+                                , height = 200
+                                , width= 150
+                                )
 
 
 
 
-                if st.session_state["Vac_Res_preformance_dict"] is not None: 
+            if st.session_state["Vac_Res_preformance_dict"] is not None: 
 
-                    st.markdown('###')
-                    st.markdown("### :desert_island: Vacant Residential Model Performance:")
+                st.markdown('###')
+                st.markdown("### :desert_island: Vacant Residential Model Performance:")
 
-                    VR_left, VR_middle = st.columns([.6 , .4])
+                VR_left, VR_middle = st.columns([.6 , .4])
 
-                    VR_left.markdown("**Test Data Size Before Trimming**:")
-                    VR_middle.markdown(str(st.session_state["Vac_Res_preformance_dict"]["Number of Records Before Trimming Test"]))
-                    VR_left.markdown("**Test Data Size After Trimming**:")
-                    VR_middle.markdown(str(st.session_state["Vac_Res_preformance_dict"]["Number of Records After Trimming Test"]))
+                VR_left.markdown("**Test Data Size Before Trimming**:")
+                VR_middle.markdown(str(st.session_state["Vac_Res_preformance_dict"]["Number of Records Before Trimming Test"]))
+                VR_left.markdown("**Test Data Size After Trimming**:")
+                VR_middle.markdown(str(st.session_state["Vac_Res_preformance_dict"]["Number of Records After Trimming Test"]))
 
-                    st.markdown('####')
+                st.markdown('####')
 
-                    VR_radio_left, VR_radio_right = st.columns([.5 , .5])
+                VR_radio_left, VR_radio_right = st.columns([.5 , .5])
 
-                    train_stats_type_VR = VR_radio_left.radio('**Training Model Results are Calculated on :** '
-                                                            , ["Un-Trimmed Data" ,'Trimmed Data']
-                                                            , index  = 0 )
+                train_stats_type_VR = VR_radio_left.radio('**Training Model Results are Calculated on :** '
+                                                        , ["Un-Trimmed Data" ,'Trimmed Data']
+                                                        , index  = 0 )
                     
                     
-                    test_stats_type_VR = VR_radio_right.radio('**Test Model Results are Calculated on :** '
-                                        , ["Un-Trimmed Data" ,'Trimmed Data']
-                                        , index = 1)            
+                test_stats_type_VR = VR_radio_right.radio('**Test Model Results are Calculated on :** '
+                                    , ["Un-Trimmed Data" ,'Trimmed Data']
+                                    , index = 1)            
+
+
+                st.markdown('#####')
+
+
+                VR_m_left , VR_m_middle, VR_m_right = st.columns([.5 , .25 , .25])
+
+                VR_m_left.markdown("**Model Metric**")
+                VR_m_middle.markdown("**Training Pefrormance**")
+                VR_m_right.markdown("**Test Pefrormance**")
+                VR_m_left.markdown('')
+                VR_m_middle.markdown('')
+                VR_m_right.markdown('')
+
+                VR_train_stat_r_square = st.session_state["Vac_Res_preformance_dict"]["Train R Squared"]
+                VR_train_stat_weighted_mean_sale_ratio = st.session_state["Vac_Res_preformance_dict"]["Train Weighted Mean"]
+                VR_train_stat_COD = st.session_state["Vac_Res_preformance_dict"]["Train COD"]
+                VR_train_stat_PRD = st.session_state["Vac_Res_preformance_dict"]["Train PRD"]
+                VR_train_stat_MAE = st.session_state["Vac_Res_preformance_dict"]["Train MAE"]
+
+                if train_stats_type_VR == "Trimmed Data":
+                    VR_train_stat_r_square = st.session_state["Vac_Res_preformance_dict"]["Trimmed Train R Squared"]
+                    VR_train_stat_weighted_mean_sale_ratio = st.session_state["Vac_Res_preformance_dict"]["Trimmed Train Weighted Mean"]
+                    VR_train_stat_COD = st.session_state["Vac_Res_preformance_dict"]["Trimmed Train COD"]
+                    VR_train_stat_PRD = st.session_state["Vac_Res_preformance_dict"]["Trimmed Train PRD"]
+                    VR_train_stat_MAE = st.session_state["Vac_Res_preformance_dict"]["Trimmed Train MAE"]
+
+
+                VR_test_stat_r_square = st.session_state["Vac_Res_preformance_dict"]["Test R Squared"]
+                VR_test_stat_weighted_mean_sale_ratio = st.session_state["Vac_Res_preformance_dict"]["Test Weighted Mean"]
+                VR_test_stat_COD = st.session_state["Vac_Res_preformance_dict"]["Test COD"]                
+                VR_test_stat_PRD = st.session_state["Vac_Res_preformance_dict"]["Test PRD"]
+                VR_test_stat_MAE = st.session_state["Vac_Res_preformance_dict"]["Test MAE"]
+
+                if test_stats_type_VR == "Trimmed Data":
+                    VR_test_stat_r_square = st.session_state["Vac_Res_preformance_dict"]["Trimmed Test R Squared"]
+                    VR_test_stat_weighted_mean_sale_ratio = st.session_state["Vac_Res_preformance_dict"]["Trimmed Test Weighted Mean"] 
+                    VR_test_stat_COD = st.session_state["Vac_Res_preformance_dict"]["Trimmed Test COD"]
+                    VR_test_stat_PRD = st.session_state["Vac_Res_preformance_dict"]["Trimmed Test PRD"]
+                    VR_test_stat_MAE = st.session_state["Vac_Res_preformance_dict"]["Trimmed Test MAE"]
+                    
+
+                VR_m_left.markdown("**R Squared**")
+                VR_perf_color = 'green' if VR_train_stat_r_square > 0.8 else 'orange'
+                if VR_train_stat_r_square < .5 :
+                    VR_perf_color = 'red'
+                VR_m_middle.markdown( ":" + VR_perf_color + "["  + str(VR_train_stat_r_square ) + "]"   )
+                VR_perf_color = 'green' if VR_test_stat_r_square> 0.8 else 'orange'
+                if VR_test_stat_r_square < .5 :
+                    VR_perf_color = 'red'
+                VR_m_right.markdown( ":" + VR_perf_color + "["  + str(VR_test_stat_r_square) + "]"   )
+
+                VR_m_left.markdown("**Weighted Mean Sale Ratio**")
+                VR_perf_color = 'green' if abs(VR_train_stat_weighted_mean_sale_ratio - 1 ) <= 0.03 else 'orange'
+                if abs(VR_train_stat_weighted_mean_sale_ratio - 1 ) > 0.05 :
+                    VR_perf_color = 'red'
+                VR_m_middle.markdown( ":" + VR_perf_color + "["  + str(VR_train_stat_weighted_mean_sale_ratio) + "]"   )
+                VR_perf_color = 'green' if abs(VR_test_stat_weighted_mean_sale_ratio - 1 ) <= 0.03 else 'orange'
+                if abs(VR_test_stat_weighted_mean_sale_ratio - 1 ) > 0.05 :
+                    VR_perf_color = 'red'
+                VR_m_right.markdown( ":" + VR_perf_color + "["  + str(VR_test_stat_weighted_mean_sale_ratio) + "]"   )
+
+                VR_m_left.markdown("**COD**")
+                VR_perf_color = 'green' if VR_train_stat_COD < 10 else 'orange'
+                if VR_train_stat_COD > 15 :
+                    VR_perf_color = 'red'
+                VR_m_middle.markdown( ":" + VR_perf_color + "["  + str(VR_train_stat_COD) + "]"   )
+                VR_perf_color = 'green' if VR_test_stat_COD < 10 else 'orange'
+                if VR_test_stat_COD > 15 :
+                    VR_perf_color = 'red'
+                VR_m_right.markdown( ":" + VR_perf_color + "["  + str(VR_test_stat_COD) + "]"   )
+
+                VR_m_left.markdown("**PRD**")
+                VR_perf_color = 'green' if (VR_train_stat_PRD   > .97 ) and (VR_train_stat_PRD   > 1.02 ) else 'orange'
+                if abs(VR_train_stat_PRD  - 1 ) > .04 :
+                    VR_perf_color = 'red'
+                VR_m_middle.markdown( ":" + VR_perf_color + "["  + str(VR_train_stat_PRD ) + "]"   )
+                VR_perf_color = 'green' if (VR_test_stat_PRD < .97) and (VR_test_stat_PRD > 1.02)  else 'orange'
+                if abs(VR_test_stat_PRD - 1 )  > 0.04 :
+                    VR_perf_color = 'red'
+                VR_m_right.markdown( ":" + VR_perf_color + "["  + str(VR_test_stat_PRD) + "]"   )
+
+                VR_m_left.markdown("**Mean Absolute Error**")
+            
+                VR_m_middle.markdown(  str(round(VR_train_stat_MAE,0))  )
+        
+                VR_m_right.markdown( str(round(VR_test_stat_MAE,0)) )
+
+                if  st.session_state['Model_Performance_Toggle']:
+                    st.markdown('#####')
+                    st.markdown('#####')
+
+                    st.markdown('#### Graphs to compare Model Performance to NAL Values On the Trimmed Test Set (Vacant Residential Model)')
+
+                    graph_metric_VR = st.radio(
+                                            "## Model Metric:"
+                                            ,['R squared  ' , 'Weighted Mean Sale Ratio  ' , 'COD  ' , 'PRD  ' , 'Mean Absolute Error  ']
+                                            , horizontal = True
+                                            , index = 0
+                                        )                    
+
+
+                    if graph_metric_VR == 'R squared  ':  
+                            
+                        graph_data_VR = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Vac_Res_preformance_dict"]["Trimmed Test R Squared"] , st.session_state["Vac_Res_preformance_dict"]["Trimmed Test NAL R Squared"]] }
+                        graph_lab_VR = 'R Squared'
+
+                    elif graph_metric_VR == 'Weighted Mean Sale Ratio  ':
+                        graph_data_VR = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Vac_Res_preformance_dict"]["Trimmed Test Weighted Mean"] , st.session_state["Vac_Res_preformance_dict"]["Trimmed Test NAL Weighted Mean"]] }
+                        graph_lab_VR = 'Weighted Mean Sale Ratio'
+
+                    elif graph_metric_VR== 'COD  ':
+                        graph_data_VR = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Vac_Res_preformance_dict"]["Trimmed Test COD"] , st.session_state["Vac_Res_preformance_dict"]["Trimmed Test NAL COD"]] }
+                        graph_lab_VR = 'COD'
+
+                    elif graph_metric_VR == 'PRD  ':
+                        graph_data_VR = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Vac_Res_preformance_dict"]["Trimmed Test PRD"] , st.session_state["Vac_Res_preformance_dict"]["Trimmed Test NAL PRD"]] }
+                        graph_lab_VR = 'PRD'    
+
+                    elif graph_metric_VR == 'Mean Absolute Error  ':     
+                        graph_data_VR = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Vac_Res_preformance_dict"]["Trimmed Test MAE"] , st.session_state["Vac_Res_preformance_dict"]["Trimmed Test NAL MAE"]] }
+                        graph_lab_VR = 'Mean Absolute Error'
 
 
                     st.markdown('#####')
-
-
-                    VR_m_left , VR_m_middle, VR_m_right = st.columns([.5 , .25 , .25])
-
-                    VR_m_left.markdown("**Model Metric**")
-                    VR_m_middle.markdown("**Training Pefrormance**")
-                    VR_m_right.markdown("**Test Pefrormance**")
-                    VR_m_left.markdown('')
-                    VR_m_middle.markdown('')
-                    VR_m_right.markdown('')
-
-                    VR_train_stat_r_square = st.session_state["Vac_Res_preformance_dict"]["Train R Squared"]
-                    VR_train_stat_weighted_mean_sale_ratio = st.session_state["Vac_Res_preformance_dict"]["Train Weighted Mean"]
-                    VR_train_stat_COD = st.session_state["Vac_Res_preformance_dict"]["Train COD"]
-                    VR_train_stat_PRD = st.session_state["Vac_Res_preformance_dict"]["Train PRD"]
-                    VR_train_stat_MAE = st.session_state["Vac_Res_preformance_dict"]["Train MAE"]
-
-                    if train_stats_type_VR == "Trimmed Data":
-                        VR_train_stat_r_square = st.session_state["Vac_Res_preformance_dict"]["Trimmed Train R Squared"]
-                        VR_train_stat_weighted_mean_sale_ratio = st.session_state["Vac_Res_preformance_dict"]["Trimmed Train Weighted Mean"]
-                        VR_train_stat_COD = st.session_state["Vac_Res_preformance_dict"]["Trimmed Train COD"]
-                        VR_train_stat_PRD = st.session_state["Vac_Res_preformance_dict"]["Trimmed Train PRD"]
-                        VR_train_stat_MAE = st.session_state["Vac_Res_preformance_dict"]["Trimmed Train MAE"]
-
-
-                    VR_test_stat_r_square = st.session_state["Vac_Res_preformance_dict"]["Test R Squared"]
-                    VR_test_stat_weighted_mean_sale_ratio = st.session_state["Vac_Res_preformance_dict"]["Test Weighted Mean"]
-                    VR_test_stat_COD = st.session_state["Vac_Res_preformance_dict"]["Test COD"]                
-                    VR_test_stat_PRD = st.session_state["Vac_Res_preformance_dict"]["Test PRD"]
-                    VR_test_stat_MAE = st.session_state["Vac_Res_preformance_dict"]["Test MAE"]
-
-                    if test_stats_type_VR == "Trimmed Data":
-                        VR_test_stat_r_square = st.session_state["Vac_Res_preformance_dict"]["Trimmed Test R Squared"]
-                        VR_test_stat_weighted_mean_sale_ratio = st.session_state["Vac_Res_preformance_dict"]["Trimmed Test Weighted Mean"] 
-                        VR_test_stat_COD = st.session_state["Vac_Res_preformance_dict"]["Trimmed Test COD"]
-                        VR_test_stat_PRD = st.session_state["Vac_Res_preformance_dict"]["Trimmed Test PRD"]
-                        VR_test_stat_MAE = st.session_state["Vac_Res_preformance_dict"]["Trimmed Test MAE"]
-                    
-
-                    VR_m_left.markdown("**R Squared**")
-                    VR_perf_color = 'green' if VR_train_stat_r_square > 0.8 else 'orange'
-                    if VR_train_stat_r_square < .5 :
-                        VR_perf_color = 'red'
-                    VR_m_middle.markdown( ":" + VR_perf_color + "["  + str(VR_train_stat_r_square ) + "]"   )
-                    VR_perf_color = 'green' if VR_test_stat_r_square> 0.8 else 'orange'
-                    if VR_test_stat_r_square < .5 :
-                        VR_perf_color = 'red'
-                    VR_m_right.markdown( ":" + VR_perf_color + "["  + str(VR_test_stat_r_square) + "]"   )
-
-                    VR_m_left.markdown("**Weighted Mean Sale Ratio**")
-                    VR_perf_color = 'green' if abs(VR_train_stat_weighted_mean_sale_ratio - 1 ) <= 0.03 else 'orange'
-                    if abs(VR_train_stat_weighted_mean_sale_ratio - 1 ) > 0.05 :
-                        VR_perf_color = 'red'
-                    VR_m_middle.markdown( ":" + VR_perf_color + "["  + str(VR_train_stat_weighted_mean_sale_ratio) + "]"   )
-                    VR_perf_color = 'green' if abs(VR_test_stat_weighted_mean_sale_ratio - 1 ) <= 0.03 else 'orange'
-                    if abs(VR_test_stat_weighted_mean_sale_ratio - 1 ) > 0.05 :
-                        VR_perf_color = 'red'
-                    VR_m_right.markdown( ":" + VR_perf_color + "["  + str(VR_test_stat_weighted_mean_sale_ratio) + "]"   )
-
-                    VR_m_left.markdown("**COD**")
-                    VR_perf_color = 'green' if VR_train_stat_COD < 10 else 'orange'
-                    if VR_train_stat_COD > 15 :
-                        VR_perf_color = 'red'
-                    VR_m_middle.markdown( ":" + VR_perf_color + "["  + str(VR_train_stat_COD) + "]"   )
-                    VR_perf_color = 'green' if VR_test_stat_COD < 10 else 'orange'
-                    if VR_test_stat_COD > 15 :
-                        VR_perf_color = 'red'
-                    VR_m_right.markdown( ":" + VR_perf_color + "["  + str(VR_test_stat_COD) + "]"   )
-
-                    VR_m_left.markdown("**PRD**")
-                    VR_perf_color = 'green' if (VR_train_stat_PRD   > .97 ) and (VR_train_stat_PRD   > 1.02 ) else 'orange'
-                    if abs(VR_train_stat_PRD  - 1 ) > .04 :
-                        VR_perf_color = 'red'
-                    VR_m_middle.markdown( ":" + VR_perf_color + "["  + str(VR_train_stat_PRD ) + "]"   )
-                    VR_perf_color = 'green' if (VR_test_stat_PRD < .97) and (VR_test_stat_PRD > 1.02)  else 'orange'
-                    if abs(VR_test_stat_PRD - 1 )  > 0.04 :
-                        VR_perf_color = 'red'
-                    VR_m_right.markdown( ":" + VR_perf_color + "["  + str(VR_test_stat_PRD) + "]"   )
-
-                    VR_m_left.markdown("**Mean Absolute Error**")
-            
-                    VR_m_middle.markdown(  str(round(VR_train_stat_MAE,0))  )
-        
-                    VR_m_right.markdown( str(round(VR_test_stat_MAE,0)) )
-
-                    if  st.session_state['Model_Performance_Toggle']:
-                        st.markdown('#####')
-                        st.markdown('#####')
-
-                        st.markdown('#### Graphs to compare Model Performance to NAL Values On the Trimmed Test Set (Vacant Residential Model)')
-
-                        graph_metric_VR = st.radio(
-                                                "## Model Metric:"
-                                                ,['R squared  ' , 'Weighted Mean Sale Ratio  ' , 'COD  ' , 'PRD  ' , 'Mean Absolute Error  ']
-                                                , horizontal = True
-                                                , index = 0
-                                            )                    
-
-
-                        if graph_metric_VR == 'R squared  ':  
-                            
-                            graph_data_VR = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Vac_Res_preformance_dict"]["Trimmed Test R Squared"] , st.session_state["Vac_Res_preformance_dict"]["Trimmed Test NAL R Squared"]] }
-                            graph_lab_VR = 'R Squared'
-
-                        elif graph_metric_VR == 'Weighted Mean Sale Ratio  ':
-                            graph_data_VR = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Vac_Res_preformance_dict"]["Trimmed Test Weighted Mean"] , st.session_state["Vac_Res_preformance_dict"]["Trimmed Test NAL Weighted Mean"]] }
-                            graph_lab_VR = 'Weighted Mean Sale Ratio'
-
-                        elif graph_metric_VR== 'COD  ':
-                            graph_data_VR = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Vac_Res_preformance_dict"]["Trimmed Test COD"] , st.session_state["Vac_Res_preformance_dict"]["Trimmed Test NAL COD"]] }
-                            graph_lab_VR = 'COD'
-
-                        elif graph_metric_VR == 'PRD  ':
-                            graph_data_VR = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Vac_Res_preformance_dict"]["Trimmed Test PRD"] , st.session_state["Vac_Res_preformance_dict"]["Trimmed Test NAL PRD"]] }
-                            graph_lab_VR = 'PRD'    
-
-                        elif graph_metric_VR == 'Mean Absolute Error  ':     
-                            graph_data_VR = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Vac_Res_preformance_dict"]["Trimmed Test MAE"] , st.session_state["Vac_Res_preformance_dict"]["Trimmed Test NAL MAE"]] }
-                            graph_lab_VR = 'Mean Absolute Error'
-
-
-                        st.markdown('#####')
 
                         
-                        st.bar_chart( pd.DataFrame(graph_data_VR)
-                                    , x = 'Value Source'
+                    st.bar_chart( pd.DataFrame(graph_data_VR)
+                                , x = 'Value Source'
                                     
-                                    , y = 'Metric'
+                                , y = 'Metric'
                                     
-                                    , y_label= graph_lab_VR
+                                , y_label= graph_lab_VR
                                     
-                                    , horizontal = True
+                                , horizontal = True
 
                     
-                                    , height = 200
-                                    , width= 150
-                                    )
+                                , height = 200
+                                , width= 150
+                                )
 
 
-                if st.session_state["Commercial_preformance_dict"] is not None: 
+            if st.session_state["Commercial_preformance_dict"] is not None: 
 
-                    st.markdown('###')
-                    st.markdown("### :department_store: :factory: Commercial Model Performance:")
+                st.markdown('###')
+                st.markdown("### :department_store: :factory: Commercial Model Performance:")
 
-                    Com_left, Com_middle = st.columns([.6 , .4])
+                Com_left, Com_middle = st.columns([.6 , .4])
 
-                    Com_left.markdown("**Test Data Size Before Trimming**:")
-                    Com_middle.markdown(str(st.session_state["Commercial_preformance_dict"]["Number of Records Before Trimming Test"]))
-                    Com_left.markdown("**Test Data Size After Trimming**:")
-                    Com_middle.markdown(str(st.session_state["Commercial_preformance_dict"]["Number of Records After Trimming Test"]))
+                Com_left.markdown("**Test Data Size Before Trimming**:")
+                Com_middle.markdown(str(st.session_state["Commercial_preformance_dict"]["Number of Records Before Trimming Test"]))
+                Com_left.markdown("**Test Data Size After Trimming**:")
+                Com_middle.markdown(str(st.session_state["Commercial_preformance_dict"]["Number of Records After Trimming Test"]))
 
-                    st.markdown('####')
+                st.markdown('####')
 
-                    Com_radio_left, Com_radio_right = st.columns([.5 , .5])
+                Com_radio_left, Com_radio_right = st.columns([.5 , .5])
 
-                    train_stats_type_Com = Com_radio_left.radio('**Training Model Results are Calculated on :**   '
-                                                            , ["Un-Trimmed Data" ,'Trimmed Data']
-                                                            , index  = 0 )
+                train_stats_type_Com = Com_radio_left.radio('**Training Model Results are Calculated on :**   '
+                                                        , ["Un-Trimmed Data" ,'Trimmed Data']
+                                                        , index  = 0 )
                     
                     
-                    test_stats_type_Com = Com_radio_right.radio('**Test Model Results are Calculated on :**   '
-                                                                    , ["Un-Trimmed Data" ,'Trimmed Data']
-                                                                    , index = 1)            
+                test_stats_type_Com = Com_radio_right.radio('**Test Model Results are Calculated on :**   '
+                                                                , ["Un-Trimmed Data" ,'Trimmed Data']
+                                                                , index = 1)            
+
+
+                st.markdown('#####')
+
+
+
+                Com_m_left , Com_m_middle, Com_m_right = st.columns([.5 , .25 , .25])
+
+                Com_m_left.markdown("**Model Metric**")
+                Com_m_middle.markdown("**Training Pefrormance**")
+                Com_m_right.markdown("**Test Pefrormance**")
+                Com_m_left.markdown('')
+                Com_m_middle.markdown('')
+                Com_m_right.markdown('')
+
+                Com_train_stat_r_square = st.session_state["Commercial_preformance_dict"]["Train R Squared"]
+                Com_train_stat_weighted_mean_sale_ratio = st.session_state["Commercial_preformance_dict"]["Train Weighted Mean"]
+                Com_train_stat_COD = st.session_state["Commercial_preformance_dict"]["Train COD"]
+                Com_train_stat_PRD = st.session_state["Commercial_preformance_dict"]["Train PRD"]
+                Com_train_stat_MAE = st.session_state["Commercial_preformance_dict"]["Train MAE"]
+
+                if train_stats_type_Com == "Trimmed Data":
+                    Com_train_stat_r_square = st.session_state["Commercial_preformance_dict"]["Trimmed Train R Squared"]
+                    Com_train_stat_weighted_mean_sale_ratio = st.session_state["Commercial_preformance_dict"]["Trimmed Train Weighted Mean"]
+                    Com_train_stat_COD = st.session_state["Commercial_preformance_dict"]["Trimmed Train COD"]
+                    Com_train_stat_PRD = st.session_state["Commercial_preformance_dict"]["Trimmed Train PRD"]
+                    Com_train_stat_MAE = st.session_state["Commercial_preformance_dict"]["Trimmed Train MAE"]
+
+
+                Com_test_stat_r_square = st.session_state["Commercial_preformance_dict"]["Test R Squared"]
+                Com_test_stat_weighted_mean_sale_ratio = st.session_state["Commercial_preformance_dict"]["Test Weighted Mean"]
+                Com_test_stat_COD = st.session_state["Commercial_preformance_dict"]["Test COD"]                
+                Com_test_stat_PRD = st.session_state["Commercial_preformance_dict"]["Test PRD"]
+                Com_test_stat_MAE = st.session_state["Commercial_preformance_dict"]["Test MAE"]
+
+                if test_stats_type_Com == "Trimmed Data":
+                    Com_test_stat_r_square = st.session_state["Commercial_preformance_dict"]["Trimmed Test R Squared"]
+                    Com_test_stat_weighted_mean_sale_ratio = st.session_state["Commercial_preformance_dict"]["Trimmed Test Weighted Mean"] 
+                    Com_test_stat_COD = st.session_state["Commercial_preformance_dict"]["Trimmed Test COD"]
+                    Com_test_stat_PRD = st.session_state["Commercial_preformance_dict"]["Trimmed Test PRD"]
+                    Com_test_stat_MAE = st.session_state["Commercial_preformance_dict"]["Trimmed Test MAE"]
+                    
+
+                Com_m_left.markdown("**R Squared**")
+                Com_perf_color = 'green' if Com_train_stat_r_square > 0.8 else 'orange'
+                if Com_train_stat_r_square < .5 :
+                    Com_perf_color = 'red'
+                Com_m_middle.markdown( ":" + Com_perf_color + "["  + str(Com_train_stat_r_square ) + "]"   )
+                Com_perf_color = 'green' if Com_test_stat_r_square> 0.8 else 'orange'
+                if Com_test_stat_r_square < .5 :
+                    Com_perf_color = 'red'
+                Com_m_right.markdown( ":" + Com_perf_color + "["  + str(Com_test_stat_r_square) + "]"   )
+
+                Com_m_left.markdown("**Weighted Mean Sale Ratio**")
+                Com_perf_color = 'green' if abs(Com_train_stat_weighted_mean_sale_ratio - 1 ) <= 0.03 else 'orange'
+                if abs(Com_train_stat_weighted_mean_sale_ratio - 1 ) > 0.05 :
+                    Com_perf_color = 'red'
+                Com_m_middle.markdown( ":" + Com_perf_color + "["  + str(Com_train_stat_weighted_mean_sale_ratio) + "]"   )
+                Com_perf_color = 'green' if abs(Com_test_stat_weighted_mean_sale_ratio - 1 ) <= 0.03 else 'orange'
+                if abs(Com_test_stat_weighted_mean_sale_ratio - 1 ) > 0.05 :
+                    Com_perf_color = 'red'
+                Com_m_right.markdown( ":" + Com_perf_color + "["  + str(Com_test_stat_weighted_mean_sale_ratio) + "]"   )
+
+                Com_m_left.markdown("**COD**")
+                Com_perf_color = 'green' if Com_train_stat_COD < 10 else 'orange'
+                if Com_train_stat_COD > 15 :
+                    Com_perf_color = 'red'
+                Com_m_middle.markdown( ":" + Com_perf_color + "["  + str(Com_train_stat_COD) + "]"   )
+                Com_perf_color = 'green' if Com_test_stat_COD < 10 else 'orange'
+                if Com_test_stat_COD > 15 :
+                    Com_perf_color = 'red'
+                Com_m_right.markdown( ":" + Com_perf_color + "["  + str(Com_test_stat_COD) + "]"   )
+
+                Com_m_left.markdown("**PRD**")
+                Com_perf_color = 'green' if (Com_train_stat_PRD   > .97 ) and (Com_train_stat_PRD   > 1.02 ) else 'orange'
+                if abs(Com_train_stat_PRD  - 1 ) > .04 :
+                    Com_perf_color = 'red'
+                Com_m_middle.markdown( ":" + Com_perf_color + "["  + str(Com_train_stat_PRD ) + "]"   )
+                Com_perf_color = 'green' if (Com_test_stat_PRD < .97) and (Com_test_stat_PRD > 1.02)  else 'orange'
+                if abs(Com_test_stat_PRD - 1 )  > 0.04 :
+                    Com_perf_color = 'red'
+                Com_m_right.markdown( ":" + Com_perf_color + "["  + str(Com_test_stat_PRD) + "]"   )
+
+                Com_m_left.markdown("**Mean Absolute Error**")
+            
+                Com_m_middle.markdown(  str(round(Com_train_stat_MAE,0))  )
+        
+                Com_m_right.markdown( str(round(Com_test_stat_MAE,0)) )
+
+
+                if  st.session_state['Model_Performance_Toggle']:
+                    st.markdown('#####')
+                    st.markdown('#####')
+
+                    st.markdown('#### Graphs to compare Model Performance to NAL Values On the Trimmed Test Set (Commercial Model)')
+
+                    graph_metric_COM = st.radio(
+                                            "## Model Metric:"
+                                            ,['R squared   ' , 'Weighted Mean Sale Ratio   ' , 'COD   ' , 'PRD   ' , 'Mean Absolute Error   ']
+                                            , horizontal = True
+                                            , index = 0
+                                        )                    
+
+
+                    if graph_metric_COM == 'R squared   ':  
+                            
+                        graph_data_COM = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Commercial_preformance_dict"]["Trimmed Test R Squared"] , st.session_state["Commercial_preformance_dict"]["Trimmed Test NAL R Squared"]] }
+                        graph_lab_COM = 'R Squared'
+
+                    elif graph_metric_COM == 'Weighted Mean Sale Ratio   ':
+                        graph_data_COM = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Commercial_preformance_dict"]["Trimmed Test Weighted Mean"] , st.session_state["Commercial_preformance_dict"]["Trimmed Test NAL Weighted Mean"]] }
+                        graph_lab_COM = 'Weighted Mean Sale Ratio'
+
+                    elif graph_metric_COM == 'COD   ':
+                        graph_data_COM = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Commercial_preformance_dict"]["Trimmed Test COD"] , st.session_state["Commercial_preformance_dict"]["Trimmed Test NAL COD"]] }
+                        graph_lab_COM = 'COD'
+
+                    elif graph_metric_COM == 'PRD   ':
+                        graph_data_COM = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Commercial_preformance_dict"]["Trimmed Test PRD"] , st.session_state["Commercial_preformance_dict"]["Trimmed Test NAL PRD"]] }
+                        graph_lab_COM = 'PRD'    
+
+                    elif graph_metric_COM == 'Mean Absolute Error   ':     
+                        graph_data_COM = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Commercial_preformance_dict"]["Trimmed Test MAE"] , st.session_state["Commercial_preformance_dict"]["Trimmed Test NAL MAE"]] }
+                        graph_lab_COM = 'Mean Absolute Error'
 
 
                     st.markdown('#####')
-
-
-
-                    Com_m_left , Com_m_middle, Com_m_right = st.columns([.5 , .25 , .25])
-
-                    Com_m_left.markdown("**Model Metric**")
-                    Com_m_middle.markdown("**Training Pefrormance**")
-                    Com_m_right.markdown("**Test Pefrormance**")
-                    Com_m_left.markdown('')
-                    Com_m_middle.markdown('')
-                    Com_m_right.markdown('')
-
-                    Com_train_stat_r_square = st.session_state["Commercial_preformance_dict"]["Train R Squared"]
-                    Com_train_stat_weighted_mean_sale_ratio = st.session_state["Commercial_preformance_dict"]["Train Weighted Mean"]
-                    Com_train_stat_COD = st.session_state["Commercial_preformance_dict"]["Train COD"]
-                    Com_train_stat_PRD = st.session_state["Commercial_preformance_dict"]["Train PRD"]
-                    Com_train_stat_MAE = st.session_state["Commercial_preformance_dict"]["Train MAE"]
-
-                    if train_stats_type_Com == "Trimmed Data":
-                        Com_train_stat_r_square = st.session_state["Commercial_preformance_dict"]["Trimmed Train R Squared"]
-                        Com_train_stat_weighted_mean_sale_ratio = st.session_state["Commercial_preformance_dict"]["Trimmed Train Weighted Mean"]
-                        Com_train_stat_COD = st.session_state["Commercial_preformance_dict"]["Trimmed Train COD"]
-                        Com_train_stat_PRD = st.session_state["Commercial_preformance_dict"]["Trimmed Train PRD"]
-                        Com_train_stat_MAE = st.session_state["Commercial_preformance_dict"]["Trimmed Train MAE"]
-
-
-                    Com_test_stat_r_square = st.session_state["Commercial_preformance_dict"]["Test R Squared"]
-                    Com_test_stat_weighted_mean_sale_ratio = st.session_state["Commercial_preformance_dict"]["Test Weighted Mean"]
-                    Com_test_stat_COD = st.session_state["Commercial_preformance_dict"]["Test COD"]                
-                    Com_test_stat_PRD = st.session_state["Commercial_preformance_dict"]["Test PRD"]
-                    Com_test_stat_MAE = st.session_state["Commercial_preformance_dict"]["Test MAE"]
-
-                    if test_stats_type_Com == "Trimmed Data":
-                        Com_test_stat_r_square = st.session_state["Commercial_preformance_dict"]["Trimmed Test R Squared"]
-                        Com_test_stat_weighted_mean_sale_ratio = st.session_state["Commercial_preformance_dict"]["Trimmed Test Weighted Mean"] 
-                        Com_test_stat_COD = st.session_state["Commercial_preformance_dict"]["Trimmed Test COD"]
-                        Com_test_stat_PRD = st.session_state["Commercial_preformance_dict"]["Trimmed Test PRD"]
-                        Com_test_stat_MAE = st.session_state["Commercial_preformance_dict"]["Trimmed Test MAE"]
-                    
-
-                    Com_m_left.markdown("**R Squared**")
-                    Com_perf_color = 'green' if Com_train_stat_r_square > 0.8 else 'orange'
-                    if Com_train_stat_r_square < .5 :
-                        Com_perf_color = 'red'
-                    Com_m_middle.markdown( ":" + Com_perf_color + "["  + str(Com_train_stat_r_square ) + "]"   )
-                    Com_perf_color = 'green' if Com_test_stat_r_square> 0.8 else 'orange'
-                    if Com_test_stat_r_square < .5 :
-                        Com_perf_color = 'red'
-                    Com_m_right.markdown( ":" + Com_perf_color + "["  + str(Com_test_stat_r_square) + "]"   )
-
-                    Com_m_left.markdown("**Weighted Mean Sale Ratio**")
-                    Com_perf_color = 'green' if abs(Com_train_stat_weighted_mean_sale_ratio - 1 ) <= 0.03 else 'orange'
-                    if abs(Com_train_stat_weighted_mean_sale_ratio - 1 ) > 0.05 :
-                        Com_perf_color = 'red'
-                    Com_m_middle.markdown( ":" + Com_perf_color + "["  + str(Com_train_stat_weighted_mean_sale_ratio) + "]"   )
-                    Com_perf_color = 'green' if abs(Com_test_stat_weighted_mean_sale_ratio - 1 ) <= 0.03 else 'orange'
-                    if abs(Com_test_stat_weighted_mean_sale_ratio - 1 ) > 0.05 :
-                        Com_perf_color = 'red'
-                    Com_m_right.markdown( ":" + Com_perf_color + "["  + str(Com_test_stat_weighted_mean_sale_ratio) + "]"   )
-
-                    Com_m_left.markdown("**COD**")
-                    Com_perf_color = 'green' if Com_train_stat_COD < 10 else 'orange'
-                    if Com_train_stat_COD > 15 :
-                        Com_perf_color = 'red'
-                    Com_m_middle.markdown( ":" + Com_perf_color + "["  + str(Com_train_stat_COD) + "]"   )
-                    Com_perf_color = 'green' if Com_test_stat_COD < 10 else 'orange'
-                    if Com_test_stat_COD > 15 :
-                        Com_perf_color = 'red'
-                    Com_m_right.markdown( ":" + Com_perf_color + "["  + str(Com_test_stat_COD) + "]"   )
-
-                    Com_m_left.markdown("**PRD**")
-                    Com_perf_color = 'green' if (Com_train_stat_PRD   > .97 ) and (Com_train_stat_PRD   > 1.02 ) else 'orange'
-                    if abs(Com_train_stat_PRD  - 1 ) > .04 :
-                        Com_perf_color = 'red'
-                    Com_m_middle.markdown( ":" + Com_perf_color + "["  + str(Com_train_stat_PRD ) + "]"   )
-                    Com_perf_color = 'green' if (Com_test_stat_PRD < .97) and (Com_test_stat_PRD > 1.02)  else 'orange'
-                    if abs(Com_test_stat_PRD - 1 )  > 0.04 :
-                        Com_perf_color = 'red'
-                    Com_m_right.markdown( ":" + Com_perf_color + "["  + str(Com_test_stat_PRD) + "]"   )
-
-                    Com_m_left.markdown("**Mean Absolute Error**")
-            
-                    Com_m_middle.markdown(  str(round(Com_train_stat_MAE,0))  )
-        
-                    Com_m_right.markdown( str(round(Com_test_stat_MAE,0)) )
-
-
-                    if  st.session_state['Model_Performance_Toggle']:
-                        st.markdown('#####')
-                        st.markdown('#####')
-
-                        st.markdown('#### Graphs to compare Model Performance to NAL Values On the Trimmed Test Set (Commercial Model)')
-
-                        graph_metric_COM = st.radio(
-                                                "## Model Metric:"
-                                                ,['R squared   ' , 'Weighted Mean Sale Ratio   ' , 'COD   ' , 'PRD   ' , 'Mean Absolute Error   ']
-                                                , horizontal = True
-                                                , index = 0
-                                            )                    
-
-
-                        if graph_metric_COM == 'R squared   ':  
-                            
-                            graph_data_COM = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Commercial_preformance_dict"]["Trimmed Test R Squared"] , st.session_state["Commercial_preformance_dict"]["Trimmed Test NAL R Squared"]] }
-                            graph_lab_COM = 'R Squared'
-
-                        elif graph_metric_COM == 'Weighted Mean Sale Ratio   ':
-                            graph_data_COM = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Commercial_preformance_dict"]["Trimmed Test Weighted Mean"] , st.session_state["Commercial_preformance_dict"]["Trimmed Test NAL Weighted Mean"]] }
-                            graph_lab_COM = 'Weighted Mean Sale Ratio'
-
-                        elif graph_metric_COM == 'COD   ':
-                            graph_data_COM = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Commercial_preformance_dict"]["Trimmed Test COD"] , st.session_state["Commercial_preformance_dict"]["Trimmed Test NAL COD"]] }
-                            graph_lab_COM = 'COD'
-
-                        elif graph_metric_COM == 'PRD   ':
-                            graph_data_COM = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Commercial_preformance_dict"]["Trimmed Test PRD"] , st.session_state["Commercial_preformance_dict"]["Trimmed Test NAL PRD"]] }
-                            graph_lab_COM = 'PRD'    
-
-                        elif graph_metric_COM == 'Mean Absolute Error   ':     
-                            graph_data_COM = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Commercial_preformance_dict"]["Trimmed Test MAE"] , st.session_state["Commercial_preformance_dict"]["Trimmed Test NAL MAE"]] }
-                            graph_lab_COM = 'Mean Absolute Error'
-
-
-                        st.markdown('#####')
 
                         
-                        st.bar_chart( pd.DataFrame(graph_data_COM)
-                                    , x = 'Value Source'
+                    st.bar_chart( pd.DataFrame(graph_data_COM)
+                                , x = 'Value Source'
                                     
-                                    , y = 'Metric'
+                                , y = 'Metric'
                                     
-                                    , y_label= graph_lab_COM
+                                , y_label= graph_lab_COM
                                     
-                                    , horizontal = True
+                                , horizontal = True
 
                     
-                                    , height = 200
-                                    , width= 150
-                                    )
+                                , height = 200
+                                , width= 150
+                                )
 
 
-                if (st.session_state['DOR_Stats_Toggle'])  :
+            if (st.session_state['DOR_Stats_Toggle'])  :
+                st.markdown('#####')
+                st.markdown('#####')
+                st.markdown('#### DOR Summary Statistics Tables For Stratum 1 Properties based on Model Values')
+                st.markdown('#####')
+
+                if st.session_state["Stratum1GroupLevelStatistics_Report"] is not None:
+                    st.markdown('##### Stratum 1 Non Condo Value Summary')
+                    st.dataframe(st.session_state["Stratum1_report"] )
+
                     st.markdown('#####')
+
+                    st.markdown('##### Stratum 1 Non Condo Group Summary')
+                    st.dataframe(st.session_state["Stratum1GroupLevelStatistics_Report"] )
+
+                if st.session_state["Stratum1GroupLevelStatistics_Report_Condos"] is not None:
+                    st.markdown('##### Stratum 1 Condo Value Summary')
+                    st.dataframe(st.session_state["Stratum1_report_Condos"] )
+
                     st.markdown('#####')
-                    st.markdown('#### DOR Summary Statistics Tables For Stratum 1 Properties based on Model Values')
+
+                    st.markdown('##### Stratum 1 Condo Group Summary')
+                    st.dataframe(st.session_state["Stratum1GroupLevelStatistics_Report_Condos"] )
+
+
+                if st.session_state["Stratum4GroupLevelStatistics_Report"] is not None:
+                    st.markdown('##### Stratum 4 Value Summary')
+                    st.dataframe(st.session_state["Stratum4_report"] )
+
                     st.markdown('#####')
 
-                    if st.session_state["Stratum1GroupLevelStatistics_Report"] is not None:
-                        st.markdown('##### Stratum 1 Non Condo Value Summary')
-                        st.dataframe(st.session_state["Stratum1_report"] )
+                    st.markdown('##### Stratum 4 Group Summary')
+                    st.dataframe(st.session_state["Stratum4GroupLevelStatistics_Report"] )
 
-                        st.markdown('#####')
+                if st.session_state["Stratum6GroupLevelStatistics_Report"] is not None:
+                    st.markdown('##### Stratum 6 Value Summary')
+                    st.dataframe(st.session_state["Stratum6_report"] )
 
-                        st.markdown('##### Stratum 1 Non Condo Group Summary')
-                        st.dataframe(st.session_state["Stratum1GroupLevelStatistics_Report"] )
+                    st.markdown('#####')
 
-                    if st.session_state["Stratum1GroupLevelStatistics_Report_Condos"] is not None:
-                        st.markdown('##### Stratum 1 Condo Value Summary')
-                        st.dataframe(st.session_state["Stratum1_report_Condos"] )
-
-                        st.markdown('#####')
-
-                        st.markdown('##### Stratum 1 Condo Group Summary')
-                        st.dataframe(st.session_state["Stratum1GroupLevelStatistics_Report_Condos"] )
-
-
-                    if st.session_state["Stratum4GroupLevelStatistics_Report"] is not None:
-                        st.markdown('##### Stratum 4 Value Summary')
-                        st.dataframe(st.session_state["Stratum4_report"] )
-
-                        st.markdown('#####')
-
-                        st.markdown('##### Stratum 4 Group Summary')
-                        st.dataframe(st.session_state["Stratum4GroupLevelStatistics_Report"] )
-
-                    if st.session_state["Stratum6GroupLevelStatistics_Report"] is not None:
-                        st.markdown('##### Stratum 6 Value Summary')
-                        st.dataframe(st.session_state["Stratum6_report"] )
-
-                        st.markdown('#####')
-
-                        st.markdown('##### Stratum 6 Group Summary')
-                        st.dataframe(st.session_state["Stratum6GroupLevelStatistics_Report"] )
+                    st.markdown('##### Stratum 6 Group Summary')
+                    st.dataframe(st.session_state["Stratum6GroupLevelStatistics_Report"] )
 
 
                 
 
-                st.markdown('#####')
-                st.markdown('#####')
-                st.markdown('#####')
-                st.markdown('#####')
+            st.markdown('#####')
+            st.markdown('#####')
+            st.markdown('#####')
+            st.markdown('#####')
 
 
-                if st.session_state["SFR_Model_Predicitons_For_Review"] is not None : 
+            if st.session_state["SFR_Model_Predicitons_For_Review"] is not None : 
           
-                    st.download_button(
-                                        label="Download All SFR Predictions for my county!",
-                                        data = convert_df(st.session_state["SFR_Model_Predicitons_For_Review"] ),
-                                        file_name = "SFR_Predictions.csv",
-                                        icon="🚨",
-                                        mime = "text/csv",
-                                    )
+                st.download_button(
+                                    label="Download All SFR Predictions for my county!",
+                                    data = convert_df(st.session_state["SFR_Model_Predicitons_For_Review"] ),
+                                    file_name = "SFR_Predictions.csv",
+                                    icon="🚨",
+                                    mime = "text/csv",
+                                )
 
 
-                if st.session_state["Condo_Model_Predicitons_All"] is not None : 
+            if st.session_state["Condo_Model_Predicitons_All"] is not None : 
                    
-                    st.download_button(
-                                        label="Download All Condo Predictions for my county!",
-                                        data = convert_df(st.session_state["Condo_Model_Predicitons_All"] ),
-                                        file_name = "Condo_Predictions.csv",
-                                        icon="🚨",
-                                        mime = "text/csv",          
-                    )
+                st.download_button(
+                                    label="Download All Condo Predictions for my county!",
+                                    data = convert_df(st.session_state["Condo_Model_Predicitons_All"] ),
+                                    file_name = "Condo_Predictions.csv",
+                                    icon="🚨",
+                                    mime = "text/csv",          
+                )
 
-                if st.session_state["Vac_Res_Model_Predicitons_All"] is not None : 
+            if st.session_state["Vac_Res_Model_Predicitons_All"] is not None : 
                     
-                    st.download_button(
-                                        label="Download All Vacant Residential Predictions for my county!",
-                                        data = convert_df(st.session_state["Vac_Res_Model_Predicitons_All"] ),
-                                        file_name = "Vac_Res_Predictions.csv",
-                                        icon="🚨",
-                                        mime = "text/csv",          
-                    )
+                st.download_button(
+                                    label="Download All Vacant Residential Predictions for my county!",
+                                    data = convert_df(st.session_state["Vac_Res_Model_Predicitons_All"] ),
+                                    file_name = "Vac_Res_Predictions.csv",
+                                    icon="🚨",
+                                    mime = "text/csv",          
+                )
 
-                if st.session_state["Commercial_Model_Predicitons_All"] is not None : 
+            if st.session_state["Commercial_Model_Predicitons_All"] is not None : 
                       
-                    st.download_button(
-                                        label="Download All Commercial Predictions for my county!",
-                                        data = convert_df(st.session_state["Commercial_Model_Predicitons_All"] ),
-                                        file_name = "Commercial_Predictions.csv",
-                                        icon="🚨",
-                                        mime = "text/csv",          
-                    )
+                st.download_button(
+                                    label="Download All Commercial Predictions for my county!",
+                                    data = convert_df(st.session_state["Commercial_Model_Predicitons_All"] ),
+                                    file_name = "Commercial_Predictions.csv",
+                                    icon="🚨",
+                                    mime = "text/csv",          
+                )
                 
-                if (st.session_state["Commercial_Model_Predicitons_All"] is not None ) or (st.session_state["Condo_Model_Predicitons_All"] is not None ) or (st.session_state["SFR_Model_Predicitons_All"] is not None ) or (st.session_state["Vac_Res_Model_Predicitons_All"] is not None ) :
+            if (st.session_state["Commercial_Model_Predicitons_All"] is not None ) or (st.session_state["Condo_Model_Predicitons_All"] is not None ) or (st.session_state["SFR_Model_Predicitons_All"] is not None ) or (st.session_state["Vac_Res_Model_Predicitons_All"] is not None ) :
                     
-                    #all_data  =  pd.DataFrame(columns = ['PARCEL_ID','Model_Prediction']) 
-                    # if st.session_state["SFR_Model_Predicitons_All"] is not None :
-                    #     all_data = pd.concat([all_data, st.session_state["SFR_Model_Predicitons_All"]], ignore_index = True)    
+                #all_data  =  pd.DataFrame(columns = ['PARCEL_ID','Model_Prediction']) 
+                # if st.session_state["SFR_Model_Predicitons_All"] is not None :
+                #     all_data = pd.concat([all_data, st.session_state["SFR_Model_Predicitons_All"]], ignore_index = True)    
 
-                    # if st.session_state["Condo_Model_Predicitons_All"] is not None :
-                    #     all_data = pd.concat([all_data, st.session_state["Condo_Model_Predicitons_All"]], ignore_index = True)
+                # if st.session_state["Condo_Model_Predicitons_All"] is not None :
+                #     all_data = pd.concat([all_data, st.session_state["Condo_Model_Predicitons_All"]], ignore_index = True)
 
-                    # if st.session_state["Vac_Res_Model_Predicitons_All"] is not None :
-                    #     all_data = pd.concat([all_data, st.session_state["Vac_Res_Model_Predicitons_All"]], ignore_index = True)
+                # if st.session_state["Vac_Res_Model_Predicitons_All"] is not None :
+                #     all_data = pd.concat([all_data, st.session_state["Vac_Res_Model_Predicitons_All"]], ignore_index = True)
                     
-                    # if st.session_state["SFR_Model_Predicitons_All"] is not None :
-                    #     all_data = pd.concat([all_data, st.session_state["SFR_Model_Predicitons_All"]], ignore_index = True)
+                # if st.session_state["SFR_Model_Predicitons_All"] is not None :
+                #     all_data = pd.concat([all_data, st.session_state["SFR_Model_Predicitons_All"]], ignore_index = True)
 
-                    all_data  = None
+                all_data  = None
 
 
-                    if st.session_state["SFR_Model_Predicitons_All"] is not None :
-                        if all_data is None: 
-                            all_data = st.session_state["SFR_Model_Predicitons_All"].copy() 
-                        else:    
-                            all_data = pd.concat([all_data, st.session_state["SFR_Model_Predicitons_All"]], ignore_index = True)    
+                if st.session_state["SFR_Model_Predicitons_All"] is not None :
+                    if all_data is None: 
+                        all_data = st.session_state["SFR_Model_Predicitons_All"].copy() 
+                    else:    
+                        all_data = pd.concat([all_data, st.session_state["SFR_Model_Predicitons_All"]], ignore_index = True)    
 
-                    if st.session_state["Condo_Model_Predicitons_All"] is not None :
-                        if all_data is None: 
-                            all_data = st.session_state["Condo_Model_Predicitons_All"].copy() 
-                        else:
-                            all_data = pd.concat([all_data, st.session_state["Condo_Model_Predicitons_All"]], ignore_index = True)
+                if st.session_state["Condo_Model_Predicitons_All"] is not None :
+                    if all_data is None: 
+                        all_data = st.session_state["Condo_Model_Predicitons_All"].copy() 
+                    else:
+                        all_data = pd.concat([all_data, st.session_state["Condo_Model_Predicitons_All"]], ignore_index = True)
 
-                    if st.session_state["Vac_Res_Model_Predicitons_All"] is not None :
-                        if all_data is None:
-                            all_data = st.session_state["Vac_Res_Model_Predicitons_All"].copy() 
-                        else:
-                            all_data = pd.concat([all_data, st.session_state["Vac_Res_Model_Predicitons_All"]], ignore_index = True)
+                if st.session_state["Vac_Res_Model_Predicitons_All"] is not None :
+                    if all_data is None:
+                        all_data = st.session_state["Vac_Res_Model_Predicitons_All"].copy() 
+                    else:
+                        all_data = pd.concat([all_data, st.session_state["Vac_Res_Model_Predicitons_All"]], ignore_index = True)
                     
-                    if st.session_state["Commercial_Model_Predicitons_All"] is not None :
-                        if all_data is None:
-                            all_data = st.session_state["Commercial_Model_Predicitons_All"].copy()
-                        else:
-                            all_data = pd.concat([all_data, st.session_state["Commercial_Model_Predicitons_All"]], ignore_index = True)
+                if st.session_state["Commercial_Model_Predicitons_All"] is not None :
+                    if all_data is None:
+                        all_data = st.session_state["Commercial_Model_Predicitons_All"].copy()
+                    else:
+                        all_data = pd.concat([all_data, st.session_state["Commercial_Model_Predicitons_All"]], ignore_index = True)
                     
                     
-                    st.download_button(
-                                        label="Download All Model(s) Predictions for my county!",
-                                        data = convert_df(all_data),
-                                        file_name = "All_Model_Predictions.csv",
-                                        icon="🚨",
-                                        mime = "text/csv",          
-                    )
+                st.download_button(
+                                    label="Download All Model(s) Predictions for my county!",
+                                    data = convert_df(all_data),
+                                    file_name = "All_Model_Predictions.csv",
+                                    icon="🚨",
+                                    mime = "text/csv",          
+                )
 
-                st.markdown('#####')
-                st.markdown('#####')
-                st.markdown('#####')
-                st.markdown('#### How About we Discuss your Data!')
-                st.write("---")
-                st.markdown('#####')
+            st.markdown('#####')
+            st.markdown('#####')
+            st.markdown('#####')
+
+    with tab_chat:
+
+        if st.session_state["Model_ran"] != True:
+            st.info(
+                "Build a model on the **3. Build Model** tab first. The "
+                "assistant answers questions about the values your model "
+                "produced, so it needs those values to exist."
+            )
+        else:
+            st.markdown('#### How About we Discuss your Data!')
+            st.write("---")
+            st.markdown('#####')
                 
                 
-                if st.session_state["Chat_Launched"] == None: 
+            if st.session_state["Chat_Launched"] == None: 
 
-                    ch_col1, ch_col2  = st.columns(2)
+                ch_col1, ch_col2  = st.columns(2)
 
-                    with ch_col1:
-                        ## No `index =` here on purpose - the starting value
-                        ## comes from session state, which is seeded further
-                        ## up. Passing both means the widget's own default is
-                        ## ignored, silently.
-                        st.selectbox('Pick a chat model'
-                                    , list(CHAT_MODELS.keys())
-                                    , key = 'Chat_Model_Selected'
-                                    , on_change = set_chatmodel)
-                        #st.write(f"You selected: {st.session_state['Chat_Model_Selected']}")
+                with ch_col1:
+                    ## No `index =` here on purpose - the starting value
+                    ## comes from session state, which is seeded further
+                    ## up. Passing both means the widget's own default is
+                    ## ignored, silently.
+                    st.selectbox('Pick a chat model'
+                                , list(CHAT_MODELS.keys())
+                                , key = 'Chat_Model_Selected'
+                                , on_change = set_chatmodel)
+                    #st.write(f"You selected: {st.session_state['Chat_Model_Selected']}")
                     
-                    with ch_col2:
-                        ## Left blank, the key from .env is used. The label is
-                        ## visible now - it used to be hidden, which left an
-                        ## unexplained text box next to the model picker.
-                        st.text_input('Anthropic API key'
-                                    , key = 'Provided_Anthropic_Key'
-                                    , type = 'password'
-                                    , placeholder = 'Leave blank to use your .env file'
-                                    , on_change = set_User_API_key)
+                with ch_col2:
+                    ## Left blank, the key from .env is used. The label is
+                    ## visible now - it used to be hidden, which left an
+                    ## unexplained text box next to the model picker.
+                    st.text_input('Anthropic API key'
+                                , key = 'Provided_Anthropic_Key'
+                                , type = 'password'
+                                , placeholder = 'Leave blank to use your .env file'
+                                , on_change = set_User_API_key)
                         
 
-                    st.markdown('#####')
+                st.markdown('#####')
 
                     
                     
-                    Build_Chat_Bot_Button = st.button('Start Chat!')
+                Build_Chat_Bot_Button = st.button('Start Chat!')
 
-                    if Build_Chat_Bot_Button:
-                        ## 🩹 This check used to read
-                        ##     if st.session_state["Provided_Google_Key"] is not None
-                        ## which was never False: a `st.text_input` with a key
-                        ## sets its session-state entry to the empty string, not
-                        ## None. So the warning below was unreachable and the app
-                        ## went ahead with no key at all.
-                        _typed_key = (st.session_state["Provided_Anthropic_Key"] or "").strip()
-                        _env_key = st.session_state["Anthropic_Key"]
-                        if _typed_key or _env_key:
-                            with st.spinner("Hold on Tight walking up the Chat Bot!"):
-                                response_container_Chat = st.empty()                                    
-                                with response_container_Chat.container():
-                                    progress_bar_Chat = st.columns([2,5,2])                                
-                                    with progress_bar_Chat[1]:                                                                            
-                                        #my_bar = st.progress(0, text='')  
-                                        try:    
-                                            render_animation2()
-                                        except:
-                                            st.spinner("Im working hard!")
-                                    Build_Chat_Bot_And_Data()
-                                    response_container_Chat.empty()
-                        else:
-                            st.warning(
-                                'No Anthropic API key found. Put ANTHROPIC_API_KEY '
-                                'in your .env file (see .env.example), or paste a '
-                                'key into the box above.'
-                            )
+                if Build_Chat_Bot_Button:
+                    ## 🩹 This check used to read
+                    ##     if st.session_state["Provided_Google_Key"] is not None
+                    ## which was never False: a `st.text_input` with a key
+                    ## sets its session-state entry to the empty string, not
+                    ## None. So the warning below was unreachable and the app
+                    ## went ahead with no key at all.
+                    _typed_key = (st.session_state["Provided_Anthropic_Key"] or "").strip()
+                    _env_key = st.session_state["Anthropic_Key"]
+                    if _typed_key or _env_key:
+                        with st.spinner("Hold on Tight walking up the Chat Bot!"):
+                            response_container_Chat = st.empty()                                    
+                            with response_container_Chat.container():
+                                progress_bar_Chat = st.columns([2,5,2])                                
+                                with progress_bar_Chat[1]:                                                                            
+                                    #my_bar = st.progress(0, text='')  
+                                    try:    
+                                        render_animation2()
+                                    except:
+                                        st.spinner("Im working hard!")
+                                Build_Chat_Bot_And_Data()
+                                response_container_Chat.empty()
+                    else:
+                        st.warning(
+                            'No Anthropic API key found. Put ANTHROPIC_API_KEY '
+                            'in your .env file (see .env.example), or paste a '
+                            'key into the box above.'
+                        )
 
-                if st.session_state["Chat_Launched"] is not None: 
+            if st.session_state["Chat_Launched"] is not None: 
                  
 
-                    st.button('Clear Chat History'
-                              , on_click = Clear_Chat_History)
+                st.button('Clear Chat History'
+                          , on_click = Clear_Chat_History)
                     
-                    st.markdown('#####')
-                    st.markdown('#####')
-                    st.markdown('#####')
+                st.markdown('#####')
+                st.markdown('#####')
+                st.markdown('#####')
                     
 
 
-                    for message in st.session_state["Chat_History"] :
-                        with st.chat_message(message["role"]):
-                            st.markdown(message["content"])
+                for message in st.session_state["Chat_History"] :
+                    with st.chat_message(message["role"]):
+                        st.markdown(message["content"])
 
-                    # React to user input
-                    if prompt := st.chat_input("What Would you like to know about your NAL?"):
-                        # Display user message in chat message container
-                        st.chat_message("user").markdown(prompt)
-                        # Add user message to chat history
-                        st.session_state["Chat_History"].append({"role": "user", "content": prompt})
+                # React to user input
+                if prompt := st.chat_input("What Would you like to know about your NAL?"):
+                    # Display user message in chat message container
+                    st.chat_message("user").markdown(prompt)
+                    # Add user message to chat history
+                    st.session_state["Chat_History"].append({"role": "user", "content": prompt})
 
 
-                        # Display assistant response in chat message container
-                        with st.chat_message("assistant"):
-                            response = st.write_stream(response_generator(prompt))
-                            if st.session_state["Display_Plot"] == 1:
-                                st.pyplot(st.session_state["Chat_Bot_Plot"])
-                        # Add assistant response to chat history
-                        st.session_state["Chat_History"].append({"role": "assistant", "content": response})
+                    # Display assistant response in chat message container
+                    with st.chat_message("assistant"):
+                        response = st.write_stream(response_generator(prompt))
+                        if st.session_state["Display_Plot"] == 1:
+                            st.pyplot(st.session_state["Chat_Bot_Plot"])
+                    # Add assistant response to chat history
+                    st.session_state["Chat_History"].append({"role": "assistant", "content": response})
 
                     
   
@@ -4688,6 +4764,7 @@ else:
 
 
                 
+
 
 
     if exit_app:
