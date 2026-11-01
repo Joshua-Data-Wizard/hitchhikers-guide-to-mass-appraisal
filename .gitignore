@@ -129,3 +129,15 @@ desktop.ini
 .DS_Store
 *.swp
 *~
+
+# ── Windows reserved device names ────────────────────────────────────────
+# matplotlib's savefig(os.devnull) appends an extension, so on Windows it
+# creates a file literally called "nul.png". "nul" is a reserved DOS device
+# name, so the result is a file git cannot index and ordinary tools cannot
+# delete - you need the \?\ extended-path prefix to remove it.
+# Ignoring the pattern stops a stray one blocking a commit.
+nul
+nul.*
+con.*
+prn.*
+aux.*
