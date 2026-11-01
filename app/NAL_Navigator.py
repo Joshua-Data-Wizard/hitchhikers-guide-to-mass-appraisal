@@ -1375,8 +1375,19 @@ def render_animation():
     if animation_response.status_code == 200:
         animation_json = animation_response.json()
     else:
-        print("Error in the URL")  
-        1/0   
+        ## 🩹 This used to be a bare `1/0`, raising ZeroDivisionError to
+        ## signal a failed download. The call sites catch it, so the app
+        ## degraded rather than died - but a deliberate ZeroDivisionError
+        ## in a traceback tells whoever reads it nothing at all.
+        ##
+        ## This matters on a county laptop: these animations are fetched
+        ## from the internet, and behind a corporate proxy the fetch fails
+        ## every time. A decoration must never be able to stop the work.
+        raise RuntimeError(
+            f"Could not fetch the loading animation "
+            f"(HTTP {animation_response.status_code}). This is decoration "
+            f"only - the app works without it."
+        )
                            
     return st_lottie(animation_json,height=300,width=400)
 
@@ -1387,8 +1398,11 @@ def render_animation2():
     if animation_response.status_code == 200:
         animation_json = animation_response.json()
     else:
-        print("Error in the URL")   
-        1/0  
+        ## See render_animation above - same reasoning.
+        raise RuntimeError(
+            f"Could not fetch the chat animation "
+            f"(HTTP {animation_response.status_code}). Decoration only."
+        )
                            
     return st_lottie(animation_json,height=300,width=400)
 
@@ -1458,6 +1472,43 @@ def Merge_data(NAL_Data , SDF_Data , GIS_Data):
     
     if GIS_Data is not None:
 
+        ## ── One shape per parcel, before anything joins on it ───────────
+        ##
+        ## A county shapefile is not guaranteed to hold exactly one polygon
+        ## per parcel. Measured on the bundled Lee County file:
+        ##
+        ##     total shapes                      559,141
+        ##     shapes with a NULL PARCEL_ID        2,915
+        ##     parcels owning more than one shape     11   -> 17 extra rows
+        ##
+        ## 🧨 Both matter, because this frame is INNER JOINED to the sales.
+        ## A parcel with five polygons joins five times, so its sale shows
+        ## up five times in the data the model learns from - and a
+        ## duplicated sale is a sale counted twice.
+        ##
+        ## It is small on this roll. It is a property of the COUNTY'S file,
+        ## though, not of our code, so another roll could be far worse and
+        ## nothing here would have told you.
+        ##
+        ## 📌 Which polygon to keep, for a parcel that has several? The
+        ## biggest one. We want a point that says where the property IS,
+        ## and the largest polygon is the main parcel rather than a sliver
+        ## left by a survey correction or an excluded easement. Keeping
+        ## whichever happened to be first in the file would be arbitrary.
+        GIS_Data = GIS_Data[GIS_Data['PARCEL_ID'].notna()].copy()
+
+        _shapes_before = len(GIS_Data)
+
+        GIS_Data['_shape_area'] = GIS_Data['geometry'].area
+        GIS_Data = (GIS_Data
+                    .sort_values('_shape_area', ascending = False)
+                    .drop_duplicates(subset = 'PARCEL_ID', keep = 'first')
+                    .drop(columns = '_shape_area'))
+
+        if _shapes_before != len(GIS_Data):
+            print(' - GIS: %d shapes -> %d, one per parcel (largest kept)'
+                  % (_shapes_before, len(GIS_Data)))
+
         GIS_Data['Northing'] = GIS_Data['geometry'].centroid.x
         GIS_Data['Easting'] = GIS_Data['geometry'].centroid.y
 
@@ -1480,23 +1531,52 @@ def Merge_data(NAL_Data , SDF_Data , GIS_Data):
                                 , on = 'PARCEL_ID'
                                 , how = 'inner').copy()
 
-        st.session_state['Model_Features'] = st.session_state['Model_Features'] + ['Latitude', 'Longitude']
+        ## 🩹 Swapping neighbourhood code for coordinates, done so it can
+        ## run twice.
+        ##
+        ## This used to be, for each of the four lists:
+        ##
+        ##     st.session_state[k] = st.session_state[k] + ['Latitude', 'Longitude']
+        ##     st.session_state[k].remove('NBRHD_CD')
+        ##
+        ## Press "Merge and Preprocess" a second time and the `.remove()`
+        ## raises ValueError: list.remove(x): x not in list, because
+        ## NBRHD_CD went the first time - leaving the list holding
+        ## ['Latitude', 'Longitude', 'Latitude', 'Longitude']. A reader who
+        ## clicks a button twice should not have to restart the app.
+        ##
+        ## Why swap at all: with real coordinates the model can learn
+        ## location directly, which is strictly better than a neighbourhood
+        ## code standing in for it. Keeping both would hand the model two
+        ## versions of the same thing.
+        for _feature_list in ('Model_Features'
+                              , 'Model_Features_Condos'
+                              , 'Model_Features_Vac_Res'
+                              , 'Model_Features_Commercial'):
+            _features = list(st.session_state[_feature_list])
 
-        st.session_state['Model_Features'].remove('NBRHD_CD') 
+            for _coordinate in ('Latitude', 'Longitude'):
+                if _coordinate not in _features:
+                    _features.append(_coordinate)
 
-        st.session_state['Model_Features_Condos'] = st.session_state['Model_Features_Condos'] + ['Latitude', 'Longitude']
+            if 'NBRHD_CD' in _features:
+                _features.remove('NBRHD_CD')
 
-        st.session_state['Model_Features_Condos'].remove('NBRHD_CD') 
+            st.session_state[_feature_list] = _features
 
-        st.session_state['Model_Features_Vac_Res'] = st.session_state['Model_Features_Vac_Res'] + ['Latitude', 'Longitude']
-
-        st.session_state['Model_Features_Vac_Res'].remove('NBRHD_CD') 
-
-        st.session_state['Model_Features_Commercial'] = st.session_state['Model_Features_Commercial'] + ['Latitude', 'Longitude']
-
-        st.session_state['Model_Features_Commercial'].remove('NBRHD_CD') 
-
-        All_NAL_Data =st.session_state["NAL"].copy()
+        ## 🩹 This function writes its own result back into
+        ## session_state["NAL"], so a SECOND press of "Merge and
+        ## Preprocess" hands it a frame that already has coordinates.
+        ## Merging again would produce Latitude_x and Latitude_y, and the
+        ## model build would then fail with a KeyError on 'Latitude'.
+        ##
+        ## Dropping them first makes a re-run land in exactly the same
+        ## place as the first run. `errors = 'ignore'` because on the first
+        ## run there is nothing to drop.
+        All_NAL_Data = (st.session_state["NAL"]
+                        .copy()
+                        .drop(columns = ['Latitude', 'Longitude']
+                              , errors = 'ignore'))
 
         All_NAL_Data_With_GIS = pd.merge(All_NAL_Data
                                         , GIS_Data_Clean[['PARCEL_ID','Latitude', 'Longitude']]
@@ -1539,6 +1619,13 @@ def Merge_data(NAL_Data , SDF_Data , GIS_Data):
 
     SDF_Fix_Dict = dict(zip(NAL_SDF_Fix['PARCEL_ID']  , NAL_SDF_Fix['Sale_Adjustment_factor']))
 
+    ## Writing back into session_state["SDF"] is deliberate: the DOR
+    ## summary report needs the adjusted sale price, and it reads the SDF
+    ## rather than the merged frame.
+    ##
+    ## Safe to re-run: this OVERWRITES the column from SALE_PRC each time
+    ## rather than adjusting what is already there, so pressing the button
+    ## twice does not apply the adjustment twice.
     st.session_state["SDF"]['Adjusted_Sale_Price']= st.session_state["SDF"].apply(lambda row : round(row['SALE_PRC'] * SDF_Fix_Dict[row['PARCEL_ID']],0) , axis = 1)
 
     
@@ -1714,7 +1801,33 @@ def Build_ML_Regressors (pg_bar):
 
         NAL_Model_Test_SFR_results['sale_ratio'] = NAL_Model_Test_SFR_results['Model_Prediction'] / NAL_Model_Test_SFR_results[Model_Outcome[0]] 
 
-        NAL_Model_Test_SFR_results['sale_ratio_JV'] = (NAL_Model_Test_SFR_results['JV'] / 0.85) / NAL_Model_Test_SFR_results[Model_Outcome[0]] 
+        ## ── The county's own ratio, on the SAME footing as the model's ──
+        ##
+        ## A sale ratio is  value / sale price. Both numbers have to mean
+        ## the same thing, or the comparison is meaningless.
+        ##
+        ## `Adjusted_Sale_Price` is the sale price with the DR-493
+        ## cost-of-sale adjustment applied - what Florida compares a just
+        ## value against. `JV` is already the county's just value. So the
+        ## ratio is simply one divided by the other.
+        ##
+        ## 🩹 This line used to read (JV / 0.85) / Adjusted_Sale_Price,
+        ## which applied the cost-of-sale adjustment TWICE in opposite
+        ## directions - once dividing JV up, once multiplying the sale
+        ## down. Measured on 25,491 qualified improved sales:
+        ##
+        ##     (JV/0.85) / (SALE*0.85)   median 1.1090   <- the old line
+        ##      JV       / (SALE*0.85)   median 0.9442   <- correct
+        ##
+        ## The county was shown at the very top of IAAO's accepted
+        ## 0.90-1.10 band when it sits comfortably inside it. ✅ COD is
+        ## scale-free, so the UNIFORMITY numbers never moved - only the
+        ## LEVEL ones, which is the half an assessor is judged on.
+        ##
+        ## 📌 And because it no longer hardcodes 0.85, it follows whatever
+        ## per-DOR-code adjustment you set in the sidebar. Before, changing
+        ## an adjustment moved the model's ratio and left the county's behind.
+        NAL_Model_Test_SFR_results['sale_ratio_JV'] = NAL_Model_Test_SFR_results['JV'] / NAL_Model_Test_SFR_results[Model_Outcome[0]] 
 
         NAL_Model_Test_results_Trimmed = NAL_Model_Test_SFR_results[(NAL_Model_Test_SFR_results['sale_ratio'] > .3) & (NAL_Model_Test_SFR_results['sale_ratio'] < 1.7)]
 
@@ -1727,7 +1840,7 @@ def Build_ML_Regressors (pg_bar):
 
         NAL_Model_Data_SFR_For_Preds = st.session_state["NAL"].copy()
 
-        if st.session_state['NBHD_Encoder'] != None:
+        if st.session_state['NBHD_Encoder'] is not None:
             NAL_Model_Data_SFR_For_Preds['NBRHD_CD'] = st.session_state['NBHD_Encoder'].transform(NAL_Model_Data_SFR_For_Preds[['NBRHD_CD']])
 
         NAL_Model_Data_SFR_For_Preds = NAL_Model_Data_SFR_For_Preds[NAL_Model_Data_SFR_For_Preds['DOR_UC'].isin([1])]
@@ -1765,7 +1878,7 @@ def Build_ML_Regressors (pg_bar):
 
         Pop_Data_SFR_For_Review['Model_Prediction'] = round(Pop_Data_SFR_For_Review['Model_Prediction'],0 ) 
 
-        Pop_Data_SFR_For_Review['Model_Value_Pct_Diff_Just_Value'] = round((Pop_Data_SFR_For_Review['Model_Prediction'] - (Pop_Data_SFR_For_Review['JV'] / .85)) / (Pop_Data_SFR_For_Review['JV'] / .85) ,3)
+        Pop_Data_SFR_For_Review['Model_Value_Pct_Diff_Just_Value'] = round((Pop_Data_SFR_For_Review['Model_Prediction'] - (Pop_Data_SFR_For_Review['JV'])) / (Pop_Data_SFR_For_Review['JV']) ,3)
 
 
         Pop_Data_SFR_For_Review_Complete = pd.merge(Pop_Data_SFR_For_Review
@@ -1834,25 +1947,20 @@ def Build_ML_Regressors (pg_bar):
 
                                                     , 'Trimmed Test MAE' : round(mean_absolute_error(NAL_Model_Test_results_Trimmed[Model_Outcome] , NAL_Model_Test_results_Trimmed['Model_Prediction']),Result_Prescision)
 
-                                                    # ,'Trimmed Test NAL R Squared' : round(r2_score(  NAL_Model_Test_results_Trimmed[Model_Outcome], NAL_Model_Test_results_Trimmed['JV']  /.85 ),Result_Prescision)
 
-                                                    # , 'Trimmed Test NAL Weighted Mean' : round(weighted_Mean_Sale_Ratio(NAL_Model_Test_results_Trimmed[Model_Outcome] , NAL_Model_Test_results_Trimmed['JV']  /.85 ),Result_Prescision)
 
-                                                    # , 'Trimmed Test NAL COD' : round(COD(NAL_Model_Test_results_Trimmed[Model_Outcome].values.ravel() , NAL_Model_Test_results_Trimmed['JV']/.85  ),Result_Prescision)
 
-                                                    # , 'Trimmed Test NAL PRD' : round(PRD(NAL_Model_Test_results_Trimmed[Model_Outcome].values.ravel() , NAL_Model_Test_results_Trimmed['JV']/.85 ),Result_Prescision)
 
-                                                    # , 'Trimmed Test NAL MAE' : round(mean_absolute_error(NAL_Model_Test_results_Trimmed[Model_Outcome] , NAL_Model_Test_results_Trimmed['JV']/.85 ),Result_Prescision)
 
-                                                    ,'Trimmed Test NAL R Squared' : round(r2_score(  NAL_Model_Test_results_Trimmed_JV[Model_Outcome], NAL_Model_Test_results_Trimmed_JV['JV']  /.85 ),Result_Prescision)
+                                                    ,'Trimmed Test NAL R Squared' : round(r2_score(  NAL_Model_Test_results_Trimmed_JV[Model_Outcome], NAL_Model_Test_results_Trimmed_JV['JV'] ),Result_Prescision)
 
-                                                    , 'Trimmed Test NAL Weighted Mean' : round(weighted_Mean_Sale_Ratio(NAL_Model_Test_results_Trimmed_JV[Model_Outcome] , NAL_Model_Test_results_Trimmed_JV['JV']  /.85 ),Result_Prescision)
+                                                    , 'Trimmed Test NAL Weighted Mean' : round(weighted_Mean_Sale_Ratio(NAL_Model_Test_results_Trimmed_JV[Model_Outcome] , NAL_Model_Test_results_Trimmed_JV['JV'] ),Result_Prescision)
 
-                                                    , 'Trimmed Test NAL COD' : round(COD(NAL_Model_Test_results_Trimmed_JV[Model_Outcome].values.ravel() , NAL_Model_Test_results_Trimmed_JV['JV']/.85  ),Result_Prescision)
+                                                    , 'Trimmed Test NAL COD' : round(COD(NAL_Model_Test_results_Trimmed_JV[Model_Outcome].values.ravel() , NAL_Model_Test_results_Trimmed_JV['JV']  ),Result_Prescision)
 
-                                                    , 'Trimmed Test NAL PRD' : round(PRD(NAL_Model_Test_results_Trimmed_JV[Model_Outcome].values.ravel() , NAL_Model_Test_results_Trimmed_JV['JV']/.85 ),Result_Prescision)
+                                                    , 'Trimmed Test NAL PRD' : round(PRD(NAL_Model_Test_results_Trimmed_JV[Model_Outcome].values.ravel() , NAL_Model_Test_results_Trimmed_JV['JV'] ),Result_Prescision)
 
-                                                    , 'Trimmed Test NAL MAE' : round(mean_absolute_error(NAL_Model_Test_results_Trimmed_JV[Model_Outcome] , NAL_Model_Test_results_Trimmed_JV['JV']/.85 ),Result_Prescision)
+                                                    , 'Trimmed Test NAL MAE' : round(mean_absolute_error(NAL_Model_Test_results_Trimmed_JV[Model_Outcome] , NAL_Model_Test_results_Trimmed_JV['JV'] ),Result_Prescision)
 
                                                     
                                                     }
@@ -1890,7 +1998,13 @@ def Build_ML_Regressors (pg_bar):
             LGBM_study = optuna.create_study(direction='minimize')
             LGBM_study_obj_func = lambda trial: Model_Objective(trial
                                                     , Model_Train_Data = NAL_Data_Train_Vac_Res
-                                                    , Model_Test_Data = NAL_ModelData_Vac
+                                                    ## 🩹 This was NAL_ModelData_Vac - the
+                                                    ## FULL qualified-sales set, training rows
+                                                    ## included. SFR, Condo and Commercial all
+                                                    ## pass their proper test split; this one
+                                                    ## scored every trial partly on data the
+                                                    ## trial had just been fitted to.
+                                                    , Model_Test_Data = NAL_Data_Test_Vac_Res
                                                     , model_features = st.session_state['Model_Features_Vac_Res']
                                                     , performance_metric = 'COD'
                                                     , model_early_stopping_Rounds = 150)    
@@ -1931,7 +2045,7 @@ def Build_ML_Regressors (pg_bar):
 
         NAL_Model_Test_Vac_Res_results['sale_ratio'] = NAL_Model_Test_Vac_Res_results['Model_Prediction'] / NAL_Model_Test_Vac_Res_results[Model_Outcome[0]] 
 
-        NAL_Model_Test_Vac_Res_results['sale_ratio_JV'] = (NAL_Model_Test_Vac_Res_results['JV'] / .85) / NAL_Model_Test_Vac_Res_results[Model_Outcome[0]] 
+        NAL_Model_Test_Vac_Res_results['sale_ratio_JV'] = NAL_Model_Test_Vac_Res_results['JV'] / NAL_Model_Test_Vac_Res_results[Model_Outcome[0]] 
 
         NAL_Model_Test_Vac_Res_results_Trimmed = NAL_Model_Test_Vac_Res_results[(NAL_Model_Test_Vac_Res_results['sale_ratio'] > .3) & (NAL_Model_Test_Vac_Res_results['sale_ratio'] < 1.7)]
 
@@ -1944,7 +2058,7 @@ def Build_ML_Regressors (pg_bar):
 
         NAL_Model_Data_Vac_Res_For_Preds = st.session_state["NAL"].copy()
 
-        if st.session_state['NBHD_Encoder'] != None:
+        if st.session_state['NBHD_Encoder'] is not None:
             NAL_Model_Data_Vac_Res_For_Preds['NBRHD_CD'] = st.session_state['NBHD_Encoder'].transform(NAL_Model_Data_Vac_Res_For_Preds[['NBRHD_CD']])
 
         NAL_Model_Data_Vac_Res_For_Preds = NAL_Model_Data_Vac_Res_For_Preds[NAL_Model_Data_Vac_Res_For_Preds['DOR_UC'].isin([0])]
@@ -2017,25 +2131,20 @@ def Build_ML_Regressors (pg_bar):
 
                                                     , 'Trimmed Test MAE' : round(mean_absolute_error(NAL_Model_Test_Vac_Res_results_Trimmed[Model_Outcome] , NAL_Model_Test_Vac_Res_results_Trimmed['Model_Prediction']),Result_Prescision)
 
-                                                    # ,'Trimmed Test NAL R Squared' : round(r2_score(  NAL_Model_Test_Vac_Res_results_Trimmed[Model_Outcome], NAL_Model_Test_Vac_Res_results_Trimmed['JV'] /.85  ),Result_Prescision)
 
-                                                    # , 'Trimmed Test NAL Weighted Mean' : round(weighted_Mean_Sale_Ratio(NAL_Model_Test_Vac_Res_results_Trimmed[Model_Outcome] , NAL_Model_Test_Vac_Res_results_Trimmed['JV'] /.85 ),Result_Prescision)
 
-                                                    # , 'Trimmed Test NAL COD' : round(COD(NAL_Model_Test_Vac_Res_results_Trimmed[Model_Outcome].values.ravel() , NAL_Model_Test_Vac_Res_results_Trimmed['JV'] /.85  ),Result_Prescision)
 
-                                                    # , 'Trimmed Test NAL PRD' : round(PRD(NAL_Model_Test_Vac_Res_results_Trimmed[Model_Outcome].values.ravel() , NAL_Model_Test_Vac_Res_results_Trimmed['JV'] /.85 ),Result_Prescision)
 
-                                                    # , 'Trimmed Test NAL MAE' : round(mean_absolute_error(NAL_Model_Test_Vac_Res_results_Trimmed[Model_Outcome] , NAL_Model_Test_Vac_Res_results_Trimmed['JV'] /.85 ),Result_Prescision)
 
-                                                    ,'Trimmed Test NAL R Squared' : round(r2_score(  NAL_Model_Test_Vac_Res_results_Trimmed_JV[Model_Outcome], NAL_Model_Test_Vac_Res_results_Trimmed_JV['JV'] /.85  ),Result_Prescision)
+                                                    ,'Trimmed Test NAL R Squared' : round(r2_score(  NAL_Model_Test_Vac_Res_results_Trimmed_JV[Model_Outcome], NAL_Model_Test_Vac_Res_results_Trimmed_JV['JV']  ),Result_Prescision)
 
-                                                    , 'Trimmed Test NAL Weighted Mean' : round(weighted_Mean_Sale_Ratio(NAL_Model_Test_Vac_Res_results_Trimmed_JV[Model_Outcome] , NAL_Model_Test_Vac_Res_results_Trimmed_JV['JV'] /.85 ),Result_Prescision)
+                                                    , 'Trimmed Test NAL Weighted Mean' : round(weighted_Mean_Sale_Ratio(NAL_Model_Test_Vac_Res_results_Trimmed_JV[Model_Outcome] , NAL_Model_Test_Vac_Res_results_Trimmed_JV['JV'] ),Result_Prescision)
 
-                                                    , 'Trimmed Test NAL COD' : round(COD(NAL_Model_Test_Vac_Res_results_Trimmed_JV[Model_Outcome].values.ravel() , NAL_Model_Test_Vac_Res_results_Trimmed_JV['JV'] /.85  ),Result_Prescision)
+                                                    , 'Trimmed Test NAL COD' : round(COD(NAL_Model_Test_Vac_Res_results_Trimmed_JV[Model_Outcome].values.ravel() , NAL_Model_Test_Vac_Res_results_Trimmed_JV['JV']  ),Result_Prescision)
 
-                                                    , 'Trimmed Test NAL PRD' : round(PRD(NAL_Model_Test_Vac_Res_results_Trimmed_JV[Model_Outcome].values.ravel() , NAL_Model_Test_Vac_Res_results_Trimmed_JV['JV'] /.85 ),Result_Prescision)
+                                                    , 'Trimmed Test NAL PRD' : round(PRD(NAL_Model_Test_Vac_Res_results_Trimmed_JV[Model_Outcome].values.ravel() , NAL_Model_Test_Vac_Res_results_Trimmed_JV['JV'] ),Result_Prescision)
 
-                                                    , 'Trimmed Test NAL MAE' : round(mean_absolute_error(NAL_Model_Test_Vac_Res_results_Trimmed_JV[Model_Outcome] , NAL_Model_Test_Vac_Res_results_Trimmed_JV['JV'] /.85 ),Result_Prescision)
+                                                    , 'Trimmed Test NAL MAE' : round(mean_absolute_error(NAL_Model_Test_Vac_Res_results_Trimmed_JV[Model_Outcome] , NAL_Model_Test_Vac_Res_results_Trimmed_JV['JV'] ),Result_Prescision)
 
                                                     
                                                     }
@@ -2102,11 +2211,9 @@ def Build_ML_Regressors (pg_bar):
 
         NAL_Model_Train_Condo_results['sale_ratio'] = NAL_Model_Train_Condo_results['Model_Prediction'] / NAL_Model_Train_Condo_results[Model_Outcome[0]] 
 
-        NAL_Model_Train_Condo_results['sale_ratio_JV'] = (NAL_Model_Train_Condo_results['JV'] / 0.85) / NAL_Model_Train_Condo_results[Model_Outcome[0]] 
 
         NAL_Model_Train_Condo_results_Trimmed = NAL_Model_Train_Condo_results[(NAL_Model_Train_Condo_results['sale_ratio'] > .3) & (NAL_Model_Train_Condo_results['sale_ratio'] < 1.7)]
 
-        NAL_Model_Train_Condo_results_Trimmed_JV = NAL_Model_Train_Condo_results[(NAL_Model_Train_Condo_results['sale_ratio_JV'] > .3) & (NAL_Model_Train_Condo_results['sale_ratio_JV'] < 1.7)]
 
         #print('Number of Records Before Trimming: ', NAL_Model_Train_Condo_results.shape[0])
         #print('Number of Records After Trimming: ', NAL_Model_Train_Condo_results_Trimmed.shape[0])
@@ -2119,6 +2226,16 @@ def Build_ML_Regressors (pg_bar):
 
         NAL_Model_Test_Condo_results_Trimmed = NAL_Model_Test_Condo_results[(NAL_Model_Test_Condo_results['sale_ratio'] > .3) & (NAL_Model_Test_Condo_results['sale_ratio'] < 1.7)]
 
+        ## 🩹 These two lines used to sit 15 lines higher, attached to the
+        ## TRAIN frame - so the Condo model's "Trimmed Test NAL" figures
+        ## were measured on data the model had been fitted to, and labelled
+        ## Test. SFR, Vacant Residential and Commercial all used their test
+        ## split; Condo was the odd one out, which is the hardest kind of
+        ## inconsistency to notice because every number still looked sane.
+        NAL_Model_Test_Condo_results['sale_ratio_JV'] = NAL_Model_Test_Condo_results['JV'] / NAL_Model_Test_Condo_results[Model_Outcome[0]]
+
+        NAL_Model_Test_Condo_results_Trimmed_JV = NAL_Model_Test_Condo_results[(NAL_Model_Test_Condo_results['sale_ratio_JV'] > .3) & (NAL_Model_Test_Condo_results['sale_ratio_JV'] < 1.7)]
+
         #print(NAL_Model_Test_results_Trimmed.info())
 
         #print('Number of Records Before Trimming: ', NAL_Model_Test_Condo_results.shape[0])
@@ -2126,7 +2243,7 @@ def Build_ML_Regressors (pg_bar):
 
         NAL_Model_Data_Condo_For_Preds = st.session_state["NAL"].copy()
 
-        if st.session_state['NBHD_Encoder'] != None:
+        if st.session_state['NBHD_Encoder'] is not None:
             NAL_Model_Data_Condo_For_Preds['NBRHD_CD'] = st.session_state['NBHD_Encoder'].transform(NAL_Model_Data_Condo_For_Preds[['NBRHD_CD']])
 
         NAL_Model_Data_Condo_For_Preds = NAL_Model_Data_Condo_For_Preds[NAL_Model_Data_Condo_For_Preds['DOR_UC'].isin([4,5])]
@@ -2199,25 +2316,20 @@ def Build_ML_Regressors (pg_bar):
 
                                                     , 'Trimmed Test MAE' : round(mean_absolute_error(NAL_Model_Test_Condo_results_Trimmed[Model_Outcome] , NAL_Model_Test_Condo_results_Trimmed['Model_Prediction']),Result_Prescision)
 
-                                                    # ,'Trimmed Test NAL R Squared' : round(r2_score(  NAL_Model_Test_Condo_results_Trimmed[Model_Outcome], NAL_Model_Test_Condo_results_Trimmed['JV'] /.85  ),Result_Prescision)
 
-                                                    # , 'Trimmed Test NAL Weighted Mean' : round(weighted_Mean_Sale_Ratio(NAL_Model_Test_Condo_results_Trimmed[Model_Outcome] , NAL_Model_Test_Condo_results_Trimmed['JV'] /.85 ),Result_Prescision)
 
-                                                    # , 'Trimmed Test NAL COD' : round(COD(NAL_Model_Test_Condo_results_Trimmed[Model_Outcome].values.ravel() , NAL_Model_Test_Condo_results_Trimmed['JV']/.85  ),Result_Prescision)
 
-                                                    # , 'Trimmed Test NAL PRD' : round(PRD(NAL_Model_Test_Condo_results_Trimmed[Model_Outcome].values.ravel() , NAL_Model_Test_Condo_results_Trimmed['JV']/.85 ),Result_Prescision)
 
-                                                    # , 'Trimmed Test NAL MAE' : round(mean_absolute_error(NAL_Model_Test_Condo_results_Trimmed[Model_Outcome] , NAL_Model_Test_Condo_results_Trimmed['JV']/.85 ),Result_Prescision)
                                                     
-                                                    ,'Trimmed Test NAL R Squared' : round(r2_score(  NAL_Model_Train_Condo_results_Trimmed_JV[Model_Outcome], NAL_Model_Train_Condo_results_Trimmed_JV['JV'] /.85  ),Result_Prescision)
+                                                    ,'Trimmed Test NAL R Squared' : round(r2_score(  NAL_Model_Test_Condo_results_Trimmed_JV[Model_Outcome], NAL_Model_Test_Condo_results_Trimmed_JV['JV']  ),Result_Prescision)
 
-                                                    , 'Trimmed Test NAL Weighted Mean' : round(weighted_Mean_Sale_Ratio(NAL_Model_Train_Condo_results_Trimmed_JV[Model_Outcome] , NAL_Model_Train_Condo_results_Trimmed_JV['JV'] /.85 ),Result_Prescision)
+                                                    , 'Trimmed Test NAL Weighted Mean' : round(weighted_Mean_Sale_Ratio(NAL_Model_Test_Condo_results_Trimmed_JV[Model_Outcome] , NAL_Model_Test_Condo_results_Trimmed_JV['JV'] ),Result_Prescision)
 
-                                                    , 'Trimmed Test NAL COD' : round(COD(NAL_Model_Train_Condo_results_Trimmed_JV[Model_Outcome].values.ravel() , NAL_Model_Train_Condo_results_Trimmed_JV['JV']/.85  ),Result_Prescision)
+                                                    , 'Trimmed Test NAL COD' : round(COD(NAL_Model_Test_Condo_results_Trimmed_JV[Model_Outcome].values.ravel() , NAL_Model_Test_Condo_results_Trimmed_JV['JV']  ),Result_Prescision)
 
-                                                    , 'Trimmed Test NAL PRD' : round(PRD(NAL_Model_Train_Condo_results_Trimmed_JV[Model_Outcome].values.ravel() , NAL_Model_Train_Condo_results_Trimmed_JV['JV']/.85 ),Result_Prescision)
+                                                    , 'Trimmed Test NAL PRD' : round(PRD(NAL_Model_Test_Condo_results_Trimmed_JV[Model_Outcome].values.ravel() , NAL_Model_Test_Condo_results_Trimmed_JV['JV'] ),Result_Prescision)
 
-                                                    , 'Trimmed Test NAL MAE' : round(mean_absolute_error(NAL_Model_Train_Condo_results_Trimmed_JV[Model_Outcome] , NAL_Model_Train_Condo_results_Trimmed_JV['JV']/.85 ),Result_Prescision)
+                                                    , 'Trimmed Test NAL MAE' : round(mean_absolute_error(NAL_Model_Test_Condo_results_Trimmed_JV[Model_Outcome] , NAL_Model_Test_Condo_results_Trimmed_JV['JV'] ),Result_Prescision)
                                                     
                                                     }
 
@@ -2295,7 +2407,7 @@ def Build_ML_Regressors (pg_bar):
 
         NAL_Model_Test_Commercial_results['sale_ratio'] = NAL_Model_Test_Commercial_results['Model_Prediction'] / NAL_Model_Test_Commercial_results[Model_Outcome[0]] 
 
-        NAL_Model_Test_Commercial_results['sale_ratio_JV'] = (NAL_Model_Test_Commercial_results['JV'] / 0.85) / NAL_Model_Test_Commercial_results[Model_Outcome[0]] 
+        NAL_Model_Test_Commercial_results['sale_ratio_JV'] = NAL_Model_Test_Commercial_results['JV'] / NAL_Model_Test_Commercial_results[Model_Outcome[0]] 
 
         NAL_Model_Test_Commercial_results_Trimmed = NAL_Model_Test_Commercial_results[(NAL_Model_Test_Commercial_results['sale_ratio'] > .3) & (NAL_Model_Test_Commercial_results['sale_ratio'] < 1.7)]
 
@@ -2308,7 +2420,7 @@ def Build_ML_Regressors (pg_bar):
 
         NAL_Model_Data_Commercial_For_Preds = st.session_state["NAL"].copy()
 
-        if st.session_state['NBHD_Encoder'] != None:
+        if st.session_state['NBHD_Encoder'] is not None:
             NAL_Model_Data_Commercial_For_Preds['NBRHD_CD'] = st.session_state['NBHD_Encoder'].transform(NAL_Model_Data_Commercial_For_Preds[['NBRHD_CD']])
 
         NAL_Model_Data_Commercial_For_Preds = NAL_Model_Data_Commercial_For_Preds[NAL_Model_Data_Commercial_For_Preds['DOR_UC'].isin([11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,41,42,43,44,45,46,47,48,49])]
@@ -2382,25 +2494,20 @@ def Build_ML_Regressors (pg_bar):
 
                                                     , 'Trimmed Test MAE' : round(mean_absolute_error(NAL_Model_Test_Commercial_results_Trimmed[Model_Outcome] , NAL_Model_Test_Commercial_results_Trimmed['Model_Prediction']),Result_Prescision)
 
-                                                    # ,'Trimmed Test NAL R Squared' : round(r2_score(  NAL_Model_Test_Commercial_results_Trimmed[Model_Outcome], NAL_Model_Test_Commercial_results_Trimmed['JV']  /.85 ),Result_Prescision)
 
-                                                    # , 'Trimmed Test NAL Weighted Mean' : round(weighted_Mean_Sale_Ratio(NAL_Model_Test_Commercial_results_Trimmed[Model_Outcome] , NAL_Model_Test_Commercial_results_Trimmed['JV'] /.85 ),Result_Prescision)
 
-                                                    # , 'Trimmed Test NAL COD' : round(COD(NAL_Model_Test_Commercial_results_Trimmed[Model_Outcome].values.ravel() , NAL_Model_Test_Commercial_results_Trimmed['JV'] /.85 ),Result_Prescision)
 
-                                                    # , 'Trimmed Test NAL PRD' : round(PRD(NAL_Model_Test_Commercial_results_Trimmed[Model_Outcome].values.ravel() , NAL_Model_Test_Commercial_results_Trimmed['JV']/.85  ),Result_Prescision)
 
-                                                    # , 'Trimmed Test NAL MAE' : round(mean_absolute_error(NAL_Model_Test_Commercial_results_Trimmed[Model_Outcome] , NAL_Model_Test_Commercial_results_Trimmed['JV']/.85 ),Result_Prescision)
                                                     
-                                                    ,'Trimmed Test NAL R Squared' : round(r2_score(  NAL_Model_Test_Commercial_results_Trimmed_JV[Model_Outcome], NAL_Model_Test_Commercial_results_Trimmed_JV['JV']  /.85 ),Result_Prescision)
+                                                    ,'Trimmed Test NAL R Squared' : round(r2_score(  NAL_Model_Test_Commercial_results_Trimmed_JV[Model_Outcome], NAL_Model_Test_Commercial_results_Trimmed_JV['JV'] ),Result_Prescision)
 
-                                                    , 'Trimmed Test NAL Weighted Mean' : round(weighted_Mean_Sale_Ratio(NAL_Model_Test_Commercial_results_Trimmed_JV[Model_Outcome] , NAL_Model_Test_Commercial_results_Trimmed_JV['JV'] /.85 ),Result_Prescision)
+                                                    , 'Trimmed Test NAL Weighted Mean' : round(weighted_Mean_Sale_Ratio(NAL_Model_Test_Commercial_results_Trimmed_JV[Model_Outcome] , NAL_Model_Test_Commercial_results_Trimmed_JV['JV'] ),Result_Prescision)
 
-                                                    , 'Trimmed Test NAL COD' : round(COD(NAL_Model_Test_Commercial_results_Trimmed_JV[Model_Outcome].values.ravel() , NAL_Model_Test_Commercial_results_Trimmed_JV['JV'] /.85 ),Result_Prescision)
+                                                    , 'Trimmed Test NAL COD' : round(COD(NAL_Model_Test_Commercial_results_Trimmed_JV[Model_Outcome].values.ravel() , NAL_Model_Test_Commercial_results_Trimmed_JV['JV'] ),Result_Prescision)
 
-                                                    , 'Trimmed Test NAL PRD' : round(PRD(NAL_Model_Test_Commercial_results_Trimmed_JV[Model_Outcome].values.ravel() , NAL_Model_Test_Commercial_results_Trimmed_JV['JV']/.85  ),Result_Prescision)
+                                                    , 'Trimmed Test NAL PRD' : round(PRD(NAL_Model_Test_Commercial_results_Trimmed_JV[Model_Outcome].values.ravel() , NAL_Model_Test_Commercial_results_Trimmed_JV['JV']  ),Result_Prescision)
 
-                                                    , 'Trimmed Test NAL MAE' : round(mean_absolute_error(NAL_Model_Test_Commercial_results_Trimmed_JV[Model_Outcome] , NAL_Model_Test_Commercial_results_Trimmed_JV['JV']/.85 ),Result_Prescision)
+                                                    , 'Trimmed Test NAL MAE' : round(mean_absolute_error(NAL_Model_Test_Commercial_results_Trimmed_JV[Model_Outcome] , NAL_Model_Test_Commercial_results_Trimmed_JV['JV'] ),Result_Prescision)
                                                     
                                                     }
 
@@ -4262,7 +4369,7 @@ else:
                                 'key into the box above.'
                             )
 
-                if st.session_state["Chat_Launched"] != None: 
+                if st.session_state["Chat_Launched"] is not None: 
                  
 
                     st.button('Clear Chat History'
