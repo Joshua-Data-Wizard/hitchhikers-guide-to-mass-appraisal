@@ -783,16 +783,33 @@ def update_COS_Input():
 ## ⚠️ Argument order is NOT symmetric: COD(sale_price, appraised_value) is
 ## not COD(appraised_value, sale_price). Measured on real data the two give
 ## 14.53 and 15.59.
+## 🩹 These return nan, not None, when a statistic cannot be computed.
+##
+## The shared module returns None - deliberately, so that a missing
+## statistic cannot be mistaken for a good one. But the performance
+## dictionaries below wrap every one of these in `round(...)` at about a
+## hundred call sites, and rounding None RAISES. An empty trimmed frame -
+## a Commercial model on a county with few commercial sales - would have
+## taken the whole model build down, where previously it displayed nan.
+##
+## So: nan here, preserving exactly what these call sites always did.
+## None is for the DOR report methods, which have Format_Statistic to
+## render it as "n/a". Two different audiences, two different answers to
+## "there is no number".
+def _nan_if_missing(value):
+    return float("nan") if value is None else value
+
+
 def weighted_Mean_Sale_Ratio(sl, ap):
-    return shared_weighted_mean(sale_prices = sl, appraised_values = ap)
+    return _nan_if_missing(shared_weighted_mean(sale_prices = sl, appraised_values = ap))
 
 
 def COD(sl, ap):
-    return shared_cod(sale_prices = sl, appraised_values = ap)
+    return _nan_if_missing(shared_cod(sale_prices = sl, appraised_values = ap))
 
 
 def PRD(sl, ap):
-    return shared_prd(sale_prices = sl, appraised_values = ap)
+    return _nan_if_missing(shared_prd(sale_prices = sl, appraised_values = ap))
 
 
 
@@ -2126,7 +2143,36 @@ def Build_ML_Regressors (pg_bar):
 
         NAL_Model_Test_results_Trimmed = NAL_Model_Test_SFR_results[(NAL_Model_Test_SFR_results['sale_ratio'] > .3) & (NAL_Model_Test_SFR_results['sale_ratio'] < 1.7)]
 
-        NAL_Model_Test_results_Trimmed_JV = NAL_Model_Test_SFR_results[(NAL_Model_Test_SFR_results['sale_ratio_JV'] > .3) & (NAL_Model_Test_SFR_results['sale_ratio_JV'] < 1.7)]
+        ## ── Phase 4.4: ONE row set for both sides of the comparison ─────────
+        ##
+        ## 🩹 This used to keep only the rows whose COUNTY ratio was in range,
+        ## while the model's metrics came from a frame keeping the rows whose
+        ## MODEL ratio was in range. Two different row sets - and the app then
+        ## drew them side by side in a chart labelled "Model" vs "NAL Values".
+        ##
+        ## That flatters both. Trimming on the model's ratio drops the sales the
+        ## MODEL did worst on; trimming on the county's drops the sales the
+        ## COUNTY did worst on. Each side was scored on the subset kindest to
+        ## it, and a reader was invited to subtract one from the other.
+        ##
+        ## Now: the rows where BOTH ratios are in range. Same rows, same count,
+        ## and the model's own numbers are computed on that set too, so the
+        ## comparison is like-for-like on both axes.
+        ##
+        ## 📌 The `Trimmed Test *` keys are untouched. The model's own trimmed
+        ## performance is a fair standalone figure - it just is not a comparison.
+        _model_ratio_in_range = ((NAL_Model_Test_SFR_results['sale_ratio'] > .3)
+                                 & (NAL_Model_Test_SFR_results['sale_ratio'] < 1.7))
+        _county_ratio_in_range = ((NAL_Model_Test_SFR_results['sale_ratio_JV'] > .3)
+                                  & (NAL_Model_Test_SFR_results['sale_ratio_JV'] < 1.7))
+        
+        NAL_Model_Test_results_Comparable = NAL_Model_Test_SFR_results[_model_ratio_in_range & _county_ratio_in_range]
+        
+        ## Pulled out once, so the metric lines below read as comparisons
+        ## rather than as a wall of indexing.
+        _cmp_sale_price = NAL_Model_Test_results_Comparable[Model_Outcome[0]].values.ravel()
+        _cmp_model_value = NAL_Model_Test_results_Comparable['Model_Prediction'].values.ravel()
+        _cmp_county_value = NAL_Model_Test_results_Comparable['JV'].values.ravel()
 
         #print(NAL_Model_Test_results_Trimmed.info())
 
@@ -2247,15 +2293,22 @@ def Build_ML_Regressors (pg_bar):
 
 
 
-                                                    ,'Trimmed Test NAL R Squared' : round(r2_score(  NAL_Model_Test_results_Trimmed_JV[Model_Outcome], NAL_Model_Test_results_Trimmed_JV['JV'] ),Result_Prescision)
+                                                    ## ── The head-to-head, on identical rows ─────────────────────────
+                                                    ## Both sides measured on the same sales. See the note where
+                                                    ## _Comparable is built.
+                                                    , 'Comparable Records' : NAL_Model_Test_results_Comparable.shape[0]
 
-                                                    , 'Trimmed Test NAL Weighted Mean' : round(weighted_Mean_Sale_Ratio(NAL_Model_Test_results_Trimmed_JV[Model_Outcome] , NAL_Model_Test_results_Trimmed_JV['JV'] ),Result_Prescision)
+                                                    , 'Head to Head Model R Squared' : round(r2_score(_cmp_sale_price, _cmp_model_value), Result_Prescision)
+                                                    , 'Head to Head Model Weighted Mean' : round(weighted_Mean_Sale_Ratio(_cmp_sale_price, _cmp_model_value), Result_Prescision)
+                                                    , 'Head to Head Model COD' : round(COD(_cmp_sale_price, _cmp_model_value), Result_Prescision)
+                                                    , 'Head to Head Model PRD' : round(PRD(_cmp_sale_price, _cmp_model_value), Result_Prescision)
+                                                    , 'Head to Head Model MAE' : round(mean_absolute_error(_cmp_sale_price, _cmp_model_value), Result_Prescision)
 
-                                                    , 'Trimmed Test NAL COD' : round(COD(NAL_Model_Test_results_Trimmed_JV[Model_Outcome].values.ravel() , NAL_Model_Test_results_Trimmed_JV['JV']  ),Result_Prescision)
-
-                                                    , 'Trimmed Test NAL PRD' : round(PRD(NAL_Model_Test_results_Trimmed_JV[Model_Outcome].values.ravel() , NAL_Model_Test_results_Trimmed_JV['JV'] ),Result_Prescision)
-
-                                                    , 'Trimmed Test NAL MAE' : round(mean_absolute_error(NAL_Model_Test_results_Trimmed_JV[Model_Outcome] , NAL_Model_Test_results_Trimmed_JV['JV'] ),Result_Prescision)
+                                                    , 'Head to Head County R Squared' : round(r2_score(_cmp_sale_price, _cmp_county_value), Result_Prescision)
+                                                    , 'Head to Head County Weighted Mean' : round(weighted_Mean_Sale_Ratio(_cmp_sale_price, _cmp_county_value), Result_Prescision)
+                                                    , 'Head to Head County COD' : round(COD(_cmp_sale_price, _cmp_county_value), Result_Prescision)
+                                                    , 'Head to Head County PRD' : round(PRD(_cmp_sale_price, _cmp_county_value), Result_Prescision)
+                                                    , 'Head to Head County MAE' : round(mean_absolute_error(_cmp_sale_price, _cmp_county_value), Result_Prescision)
 
                                                     
                                                     }
@@ -2354,7 +2407,36 @@ def Build_ML_Regressors (pg_bar):
 
         NAL_Model_Test_Vac_Res_results_Trimmed = NAL_Model_Test_Vac_Res_results[(NAL_Model_Test_Vac_Res_results['sale_ratio'] > .3) & (NAL_Model_Test_Vac_Res_results['sale_ratio'] < 1.7)]
 
-        NAL_Model_Test_Vac_Res_results_Trimmed_JV = NAL_Model_Test_Vac_Res_results[(NAL_Model_Test_Vac_Res_results['sale_ratio_JV'] > .3) & (NAL_Model_Test_Vac_Res_results['sale_ratio_JV'] < 1.7)]
+        ## ── Phase 4.4: ONE row set for both sides of the comparison ─────────
+        ##
+        ## 🩹 This used to keep only the rows whose COUNTY ratio was in range,
+        ## while the model's metrics came from a frame keeping the rows whose
+        ## MODEL ratio was in range. Two different row sets - and the app then
+        ## drew them side by side in a chart labelled "Model" vs "NAL Values".
+        ##
+        ## That flatters both. Trimming on the model's ratio drops the sales the
+        ## MODEL did worst on; trimming on the county's drops the sales the
+        ## COUNTY did worst on. Each side was scored on the subset kindest to
+        ## it, and a reader was invited to subtract one from the other.
+        ##
+        ## Now: the rows where BOTH ratios are in range. Same rows, same count,
+        ## and the model's own numbers are computed on that set too, so the
+        ## comparison is like-for-like on both axes.
+        ##
+        ## 📌 The `Trimmed Test *` keys are untouched. The model's own trimmed
+        ## performance is a fair standalone figure - it just is not a comparison.
+        _model_ratio_in_range = ((NAL_Model_Test_Vac_Res_results['sale_ratio'] > .3)
+                                 & (NAL_Model_Test_Vac_Res_results['sale_ratio'] < 1.7))
+        _county_ratio_in_range = ((NAL_Model_Test_Vac_Res_results['sale_ratio_JV'] > .3)
+                                  & (NAL_Model_Test_Vac_Res_results['sale_ratio_JV'] < 1.7))
+        
+        NAL_Model_Test_Vac_Res_results_Comparable = NAL_Model_Test_Vac_Res_results[_model_ratio_in_range & _county_ratio_in_range]
+        
+        ## Pulled out once, so the metric lines below read as comparisons
+        ## rather than as a wall of indexing.
+        _cmp_sale_price = NAL_Model_Test_Vac_Res_results_Comparable[Model_Outcome[0]].values.ravel()
+        _cmp_model_value = NAL_Model_Test_Vac_Res_results_Comparable['Model_Prediction'].values.ravel()
+        _cmp_county_value = NAL_Model_Test_Vac_Res_results_Comparable['JV'].values.ravel()
 
         #print(NAL_Model_Test_results_Trimmed.info())
 
@@ -2441,15 +2523,22 @@ def Build_ML_Regressors (pg_bar):
 
 
 
-                                                    ,'Trimmed Test NAL R Squared' : round(r2_score(  NAL_Model_Test_Vac_Res_results_Trimmed_JV[Model_Outcome], NAL_Model_Test_Vac_Res_results_Trimmed_JV['JV']  ),Result_Prescision)
+                                                    ## ── The head-to-head, on identical rows ─────────────────────────
+                                                    ## Both sides measured on the same sales. See the note where
+                                                    ## _Comparable is built.
+                                                    , 'Comparable Records' : NAL_Model_Test_Vac_Res_results_Comparable.shape[0]
 
-                                                    , 'Trimmed Test NAL Weighted Mean' : round(weighted_Mean_Sale_Ratio(NAL_Model_Test_Vac_Res_results_Trimmed_JV[Model_Outcome] , NAL_Model_Test_Vac_Res_results_Trimmed_JV['JV'] ),Result_Prescision)
+                                                    , 'Head to Head Model R Squared' : round(r2_score(_cmp_sale_price, _cmp_model_value), Result_Prescision)
+                                                    , 'Head to Head Model Weighted Mean' : round(weighted_Mean_Sale_Ratio(_cmp_sale_price, _cmp_model_value), Result_Prescision)
+                                                    , 'Head to Head Model COD' : round(COD(_cmp_sale_price, _cmp_model_value), Result_Prescision)
+                                                    , 'Head to Head Model PRD' : round(PRD(_cmp_sale_price, _cmp_model_value), Result_Prescision)
+                                                    , 'Head to Head Model MAE' : round(mean_absolute_error(_cmp_sale_price, _cmp_model_value), Result_Prescision)
 
-                                                    , 'Trimmed Test NAL COD' : round(COD(NAL_Model_Test_Vac_Res_results_Trimmed_JV[Model_Outcome].values.ravel() , NAL_Model_Test_Vac_Res_results_Trimmed_JV['JV']  ),Result_Prescision)
-
-                                                    , 'Trimmed Test NAL PRD' : round(PRD(NAL_Model_Test_Vac_Res_results_Trimmed_JV[Model_Outcome].values.ravel() , NAL_Model_Test_Vac_Res_results_Trimmed_JV['JV'] ),Result_Prescision)
-
-                                                    , 'Trimmed Test NAL MAE' : round(mean_absolute_error(NAL_Model_Test_Vac_Res_results_Trimmed_JV[Model_Outcome] , NAL_Model_Test_Vac_Res_results_Trimmed_JV['JV'] ),Result_Prescision)
+                                                    , 'Head to Head County R Squared' : round(r2_score(_cmp_sale_price, _cmp_county_value), Result_Prescision)
+                                                    , 'Head to Head County Weighted Mean' : round(weighted_Mean_Sale_Ratio(_cmp_sale_price, _cmp_county_value), Result_Prescision)
+                                                    , 'Head to Head County COD' : round(COD(_cmp_sale_price, _cmp_county_value), Result_Prescision)
+                                                    , 'Head to Head County PRD' : round(PRD(_cmp_sale_price, _cmp_county_value), Result_Prescision)
+                                                    , 'Head to Head County MAE' : round(mean_absolute_error(_cmp_sale_price, _cmp_county_value), Result_Prescision)
 
                                                     
                                                     }
@@ -2564,7 +2653,36 @@ def Build_ML_Regressors (pg_bar):
         ## inconsistency to notice because every number still looked sane.
         NAL_Model_Test_Condo_results['sale_ratio_JV'] = NAL_Model_Test_Condo_results['JV'] / NAL_Model_Test_Condo_results[Model_Outcome[0]]
 
-        NAL_Model_Test_Condo_results_Trimmed_JV = NAL_Model_Test_Condo_results[(NAL_Model_Test_Condo_results['sale_ratio_JV'] > .3) & (NAL_Model_Test_Condo_results['sale_ratio_JV'] < 1.7)]
+        ## ── Phase 4.4: ONE row set for both sides of the comparison ─────────
+        ##
+        ## 🩹 This used to keep only the rows whose COUNTY ratio was in range,
+        ## while the model's metrics came from a frame keeping the rows whose
+        ## MODEL ratio was in range. Two different row sets - and the app then
+        ## drew them side by side in a chart labelled "Model" vs "NAL Values".
+        ##
+        ## That flatters both. Trimming on the model's ratio drops the sales the
+        ## MODEL did worst on; trimming on the county's drops the sales the
+        ## COUNTY did worst on. Each side was scored on the subset kindest to
+        ## it, and a reader was invited to subtract one from the other.
+        ##
+        ## Now: the rows where BOTH ratios are in range. Same rows, same count,
+        ## and the model's own numbers are computed on that set too, so the
+        ## comparison is like-for-like on both axes.
+        ##
+        ## 📌 The `Trimmed Test *` keys are untouched. The model's own trimmed
+        ## performance is a fair standalone figure - it just is not a comparison.
+        _model_ratio_in_range = ((NAL_Model_Test_Condo_results['sale_ratio'] > .3)
+                                 & (NAL_Model_Test_Condo_results['sale_ratio'] < 1.7))
+        _county_ratio_in_range = ((NAL_Model_Test_Condo_results['sale_ratio_JV'] > .3)
+                                  & (NAL_Model_Test_Condo_results['sale_ratio_JV'] < 1.7))
+        
+        NAL_Model_Test_Condo_results_Comparable = NAL_Model_Test_Condo_results[_model_ratio_in_range & _county_ratio_in_range]
+        
+        ## Pulled out once, so the metric lines below read as comparisons
+        ## rather than as a wall of indexing.
+        _cmp_sale_price = NAL_Model_Test_Condo_results_Comparable[Model_Outcome[0]].values.ravel()
+        _cmp_model_value = NAL_Model_Test_Condo_results_Comparable['Model_Prediction'].values.ravel()
+        _cmp_county_value = NAL_Model_Test_Condo_results_Comparable['JV'].values.ravel()
 
         #print(NAL_Model_Test_results_Trimmed.info())
 
@@ -2651,15 +2769,22 @@ def Build_ML_Regressors (pg_bar):
 
 
                                                     
-                                                    ,'Trimmed Test NAL R Squared' : round(r2_score(  NAL_Model_Test_Condo_results_Trimmed_JV[Model_Outcome], NAL_Model_Test_Condo_results_Trimmed_JV['JV']  ),Result_Prescision)
+                                                    ## ── The head-to-head, on identical rows ─────────────────────────
+                                                    ## Both sides measured on the same sales. See the note where
+                                                    ## _Comparable is built.
+                                                    , 'Comparable Records' : NAL_Model_Test_Condo_results_Comparable.shape[0]
 
-                                                    , 'Trimmed Test NAL Weighted Mean' : round(weighted_Mean_Sale_Ratio(NAL_Model_Test_Condo_results_Trimmed_JV[Model_Outcome] , NAL_Model_Test_Condo_results_Trimmed_JV['JV'] ),Result_Prescision)
+                                                    , 'Head to Head Model R Squared' : round(r2_score(_cmp_sale_price, _cmp_model_value), Result_Prescision)
+                                                    , 'Head to Head Model Weighted Mean' : round(weighted_Mean_Sale_Ratio(_cmp_sale_price, _cmp_model_value), Result_Prescision)
+                                                    , 'Head to Head Model COD' : round(COD(_cmp_sale_price, _cmp_model_value), Result_Prescision)
+                                                    , 'Head to Head Model PRD' : round(PRD(_cmp_sale_price, _cmp_model_value), Result_Prescision)
+                                                    , 'Head to Head Model MAE' : round(mean_absolute_error(_cmp_sale_price, _cmp_model_value), Result_Prescision)
 
-                                                    , 'Trimmed Test NAL COD' : round(COD(NAL_Model_Test_Condo_results_Trimmed_JV[Model_Outcome].values.ravel() , NAL_Model_Test_Condo_results_Trimmed_JV['JV']  ),Result_Prescision)
-
-                                                    , 'Trimmed Test NAL PRD' : round(PRD(NAL_Model_Test_Condo_results_Trimmed_JV[Model_Outcome].values.ravel() , NAL_Model_Test_Condo_results_Trimmed_JV['JV'] ),Result_Prescision)
-
-                                                    , 'Trimmed Test NAL MAE' : round(mean_absolute_error(NAL_Model_Test_Condo_results_Trimmed_JV[Model_Outcome] , NAL_Model_Test_Condo_results_Trimmed_JV['JV'] ),Result_Prescision)
+                                                    , 'Head to Head County R Squared' : round(r2_score(_cmp_sale_price, _cmp_county_value), Result_Prescision)
+                                                    , 'Head to Head County Weighted Mean' : round(weighted_Mean_Sale_Ratio(_cmp_sale_price, _cmp_county_value), Result_Prescision)
+                                                    , 'Head to Head County COD' : round(COD(_cmp_sale_price, _cmp_county_value), Result_Prescision)
+                                                    , 'Head to Head County PRD' : round(PRD(_cmp_sale_price, _cmp_county_value), Result_Prescision)
+                                                    , 'Head to Head County MAE' : round(mean_absolute_error(_cmp_sale_price, _cmp_county_value), Result_Prescision)
                                                     
                                                     }
 
@@ -2766,7 +2891,36 @@ def Build_ML_Regressors (pg_bar):
 
         NAL_Model_Test_Commercial_results_Trimmed = NAL_Model_Test_Commercial_results[(NAL_Model_Test_Commercial_results['sale_ratio'] > .3) & (NAL_Model_Test_Commercial_results['sale_ratio'] < 1.7)]
 
-        NAL_Model_Test_Commercial_results_Trimmed_JV = NAL_Model_Test_Commercial_results[(NAL_Model_Test_Commercial_results['sale_ratio_JV'] > .3) & (NAL_Model_Test_Commercial_results['sale_ratio_JV'] < 1.7)]
+        ## ── Phase 4.4: ONE row set for both sides of the comparison ─────────
+        ##
+        ## 🩹 This used to keep only the rows whose COUNTY ratio was in range,
+        ## while the model's metrics came from a frame keeping the rows whose
+        ## MODEL ratio was in range. Two different row sets - and the app then
+        ## drew them side by side in a chart labelled "Model" vs "NAL Values".
+        ##
+        ## That flatters both. Trimming on the model's ratio drops the sales the
+        ## MODEL did worst on; trimming on the county's drops the sales the
+        ## COUNTY did worst on. Each side was scored on the subset kindest to
+        ## it, and a reader was invited to subtract one from the other.
+        ##
+        ## Now: the rows where BOTH ratios are in range. Same rows, same count,
+        ## and the model's own numbers are computed on that set too, so the
+        ## comparison is like-for-like on both axes.
+        ##
+        ## 📌 The `Trimmed Test *` keys are untouched. The model's own trimmed
+        ## performance is a fair standalone figure - it just is not a comparison.
+        _model_ratio_in_range = ((NAL_Model_Test_Commercial_results['sale_ratio'] > .3)
+                                 & (NAL_Model_Test_Commercial_results['sale_ratio'] < 1.7))
+        _county_ratio_in_range = ((NAL_Model_Test_Commercial_results['sale_ratio_JV'] > .3)
+                                  & (NAL_Model_Test_Commercial_results['sale_ratio_JV'] < 1.7))
+        
+        NAL_Model_Test_Commercial_results_Comparable = NAL_Model_Test_Commercial_results[_model_ratio_in_range & _county_ratio_in_range]
+        
+        ## Pulled out once, so the metric lines below read as comparisons
+        ## rather than as a wall of indexing.
+        _cmp_sale_price = NAL_Model_Test_Commercial_results_Comparable[Model_Outcome[0]].values.ravel()
+        _cmp_model_value = NAL_Model_Test_Commercial_results_Comparable['Model_Prediction'].values.ravel()
+        _cmp_county_value = NAL_Model_Test_Commercial_results_Comparable['JV'].values.ravel()
 
         #print(NAL_Model_Test_results_Trimmed.info())
 
@@ -2854,15 +3008,22 @@ def Build_ML_Regressors (pg_bar):
 
 
                                                     
-                                                    ,'Trimmed Test NAL R Squared' : round(r2_score(  NAL_Model_Test_Commercial_results_Trimmed_JV[Model_Outcome], NAL_Model_Test_Commercial_results_Trimmed_JV['JV'] ),Result_Prescision)
+                                                    ## ── The head-to-head, on identical rows ─────────────────────────
+                                                    ## Both sides measured on the same sales. See the note where
+                                                    ## _Comparable is built.
+                                                    , 'Comparable Records' : NAL_Model_Test_Commercial_results_Comparable.shape[0]
 
-                                                    , 'Trimmed Test NAL Weighted Mean' : round(weighted_Mean_Sale_Ratio(NAL_Model_Test_Commercial_results_Trimmed_JV[Model_Outcome] , NAL_Model_Test_Commercial_results_Trimmed_JV['JV'] ),Result_Prescision)
+                                                    , 'Head to Head Model R Squared' : round(r2_score(_cmp_sale_price, _cmp_model_value), Result_Prescision)
+                                                    , 'Head to Head Model Weighted Mean' : round(weighted_Mean_Sale_Ratio(_cmp_sale_price, _cmp_model_value), Result_Prescision)
+                                                    , 'Head to Head Model COD' : round(COD(_cmp_sale_price, _cmp_model_value), Result_Prescision)
+                                                    , 'Head to Head Model PRD' : round(PRD(_cmp_sale_price, _cmp_model_value), Result_Prescision)
+                                                    , 'Head to Head Model MAE' : round(mean_absolute_error(_cmp_sale_price, _cmp_model_value), Result_Prescision)
 
-                                                    , 'Trimmed Test NAL COD' : round(COD(NAL_Model_Test_Commercial_results_Trimmed_JV[Model_Outcome].values.ravel() , NAL_Model_Test_Commercial_results_Trimmed_JV['JV'] ),Result_Prescision)
-
-                                                    , 'Trimmed Test NAL PRD' : round(PRD(NAL_Model_Test_Commercial_results_Trimmed_JV[Model_Outcome].values.ravel() , NAL_Model_Test_Commercial_results_Trimmed_JV['JV']  ),Result_Prescision)
-
-                                                    , 'Trimmed Test NAL MAE' : round(mean_absolute_error(NAL_Model_Test_Commercial_results_Trimmed_JV[Model_Outcome] , NAL_Model_Test_Commercial_results_Trimmed_JV['JV'] ),Result_Prescision)
+                                                    , 'Head to Head County R Squared' : round(r2_score(_cmp_sale_price, _cmp_county_value), Result_Prescision)
+                                                    , 'Head to Head County Weighted Mean' : round(weighted_Mean_Sale_Ratio(_cmp_sale_price, _cmp_county_value), Result_Prescision)
+                                                    , 'Head to Head County COD' : round(COD(_cmp_sale_price, _cmp_county_value), Result_Prescision)
+                                                    , 'Head to Head County PRD' : round(PRD(_cmp_sale_price, _cmp_county_value), Result_Prescision)
+                                                    , 'Head to Head County MAE' : round(mean_absolute_error(_cmp_sale_price, _cmp_county_value), Result_Prescision)
                                                     
                                                     }
 
@@ -4099,7 +4260,19 @@ else:
                     st.markdown('#####')
                     st.markdown('#####')
 
-                    st.markdown('#### Graphs to compare Model Performance to NAL Values On the Trimmed Test Set (SFR Model)')
+                    st.markdown('#### Model vs county roll, on identical sales (SFR Model)')
+
+                    ## ⚖️ Both bars come from the SAME sales - the ones
+                    ## where the model's ratio AND the county's ratio are
+                    ## both inside 0.3 to 1.7. Before, each side was
+                    ## measured on the subset kindest to itself.
+                    st.caption(
+                        "Both bars are measured on the same "
+                        + f"{st.session_state['sfr_preformance_dict']['Comparable Records']:,} "
+                        + "sales - those where neither the model's ratio "
+                        + "nor the county's is an outlier. That is what "
+                        + "makes the two comparable."
+                    )
 
                     graph_metric = st.radio(
                                             "## Model Metric:"
@@ -4111,23 +4284,23 @@ else:
 
                     if graph_metric == 'R squared':  
                             
-                        graph_data = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["sfr_preformance_dict"]["Trimmed Test R Squared"] , st.session_state["sfr_preformance_dict"]["Trimmed Test NAL R Squared"]] }
+                        graph_data = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["sfr_preformance_dict"]["Head to Head Model R Squared"] , st.session_state["sfr_preformance_dict"]["Head to Head County R Squared"]] }
                         graph_lab = 'R Squared'
 
                     elif graph_metric == 'Weighted Mean Sale Ratio':
-                        graph_data = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["sfr_preformance_dict"]["Trimmed Test Weighted Mean"] , st.session_state["sfr_preformance_dict"]["Trimmed Test NAL Weighted Mean"]] }
+                        graph_data = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["sfr_preformance_dict"]["Head to Head Model Weighted Mean"] , st.session_state["sfr_preformance_dict"]["Head to Head County Weighted Mean"]] }
                         graph_lab = 'Weighted Mean Sale Ratio'
 
                     elif graph_metric == 'COD':
-                        graph_data = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["sfr_preformance_dict"]["Trimmed Test COD"] , st.session_state["sfr_preformance_dict"]["Trimmed Test NAL COD"]] }
+                        graph_data = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["sfr_preformance_dict"]["Head to Head Model COD"] , st.session_state["sfr_preformance_dict"]["Head to Head County COD"]] }
                         graph_lab = 'COD'
 
                     elif graph_metric == 'PRD':
-                        graph_data = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["sfr_preformance_dict"]["Trimmed Test PRD"] , st.session_state["sfr_preformance_dict"]["Trimmed Test NAL PRD"]] }
+                        graph_data = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["sfr_preformance_dict"]["Head to Head Model PRD"] , st.session_state["sfr_preformance_dict"]["Head to Head County PRD"]] }
                         graph_lab = 'PRD'    
 
                     elif graph_metric == 'Mean Absolute Error':     
-                        graph_data = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["sfr_preformance_dict"]["Trimmed Test MAE"] , st.session_state["sfr_preformance_dict"]["Trimmed Test NAL MAE"]] }
+                        graph_data = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["sfr_preformance_dict"]["Head to Head Model MAE"] , st.session_state["sfr_preformance_dict"]["Head to Head County MAE"]] }
                         graph_lab = 'Mean Absolute Error'
 
 
@@ -4267,7 +4440,19 @@ else:
                     st.markdown('#####')
                     st.markdown('#####')
 
-                    st.markdown('#### Graphs to compare Model Performance to NAL Values On the Trimmed Test Set (Condo Model)')
+                    st.markdown('#### Model vs county roll, on identical sales (Condo Model)')
+
+                    ## ⚖️ Both bars come from the SAME sales - the ones
+                    ## where the model's ratio AND the county's ratio are
+                    ## both inside 0.3 to 1.7. Before, each side was
+                    ## measured on the subset kindest to itself.
+                    st.caption(
+                        "Both bars are measured on the same "
+                        + f"{st.session_state['Condo_preformance_dict']['Comparable Records']:,} "
+                        + "sales - those where neither the model's ratio "
+                        + "nor the county's is an outlier. That is what "
+                        + "makes the two comparable."
+                    )
 
                     graph_metric_con = st.radio(
                                             "## Model Metric:"
@@ -4279,23 +4464,23 @@ else:
 
                     if graph_metric_con == 'R squared ':  
                             
-                        graph_data_con = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Condo_preformance_dict"]["Trimmed Test R Squared"] , st.session_state["Condo_preformance_dict"]["Trimmed Test NAL R Squared"]] }
+                        graph_data_con = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Condo_preformance_dict"]["Head to Head Model R Squared"] , st.session_state["Condo_preformance_dict"]["Head to Head County R Squared"]] }
                         graph_lab_con = 'R Squared'
 
                     elif graph_metric_con == 'Weighted Mean Sale Ratio ':
-                        graph_data_con = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Condo_preformance_dict"]["Trimmed Test Weighted Mean"] , st.session_state["Condo_preformance_dict"]["Trimmed Test NAL Weighted Mean"]] }
+                        graph_data_con = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Condo_preformance_dict"]["Head to Head Model Weighted Mean"] , st.session_state["Condo_preformance_dict"]["Head to Head County Weighted Mean"]] }
                         graph_lab_con = 'Weighted Mean Sale Ratio'
 
                     elif graph_metric_con == 'COD ':
-                        graph_data_con = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Condo_preformance_dict"]["Trimmed Test COD"] , st.session_state["Condo_preformance_dict"]["Trimmed Test NAL COD"]] }
+                        graph_data_con = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Condo_preformance_dict"]["Head to Head Model COD"] , st.session_state["Condo_preformance_dict"]["Head to Head County COD"]] }
                         graph_lab_con = 'COD'
 
                     elif graph_metric_con == 'PRD ':
-                        graph_data_con = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Condo_preformance_dict"]["Trimmed Test PRD"] , st.session_state["Condo_preformance_dict"]["Trimmed Test NAL PRD"]] }
+                        graph_data_con = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Condo_preformance_dict"]["Head to Head Model PRD"] , st.session_state["Condo_preformance_dict"]["Head to Head County PRD"]] }
                         graph_lab_con = 'PRD'    
 
                     elif graph_metric_con == 'Mean Absolute Error ':     
-                        graph_data_con = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Condo_preformance_dict"]["Trimmed Test MAE"] , st.session_state["Condo_preformance_dict"]["Trimmed Test NAL MAE"]] }
+                        graph_data_con = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Condo_preformance_dict"]["Head to Head Model MAE"] , st.session_state["Condo_preformance_dict"]["Head to Head County MAE"]] }
                         graph_lab_con = 'Mean Absolute Error'
 
 
@@ -4435,7 +4620,19 @@ else:
                     st.markdown('#####')
                     st.markdown('#####')
 
-                    st.markdown('#### Graphs to compare Model Performance to NAL Values On the Trimmed Test Set (Vacant Residential Model)')
+                    st.markdown('#### Model vs county roll, on identical sales (Vacant Residential Model)')
+
+                    ## ⚖️ Both bars come from the SAME sales - the ones
+                    ## where the model's ratio AND the county's ratio are
+                    ## both inside 0.3 to 1.7. Before, each side was
+                    ## measured on the subset kindest to itself.
+                    st.caption(
+                        "Both bars are measured on the same "
+                        + f"{st.session_state['Vac_Res_preformance_dict']['Comparable Records']:,} "
+                        + "sales - those where neither the model's ratio "
+                        + "nor the county's is an outlier. That is what "
+                        + "makes the two comparable."
+                    )
 
                     graph_metric_VR = st.radio(
                                             "## Model Metric:"
@@ -4447,23 +4644,23 @@ else:
 
                     if graph_metric_VR == 'R squared  ':  
                             
-                        graph_data_VR = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Vac_Res_preformance_dict"]["Trimmed Test R Squared"] , st.session_state["Vac_Res_preformance_dict"]["Trimmed Test NAL R Squared"]] }
+                        graph_data_VR = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Vac_Res_preformance_dict"]["Head to Head Model R Squared"] , st.session_state["Vac_Res_preformance_dict"]["Head to Head County R Squared"]] }
                         graph_lab_VR = 'R Squared'
 
                     elif graph_metric_VR == 'Weighted Mean Sale Ratio  ':
-                        graph_data_VR = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Vac_Res_preformance_dict"]["Trimmed Test Weighted Mean"] , st.session_state["Vac_Res_preformance_dict"]["Trimmed Test NAL Weighted Mean"]] }
+                        graph_data_VR = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Vac_Res_preformance_dict"]["Head to Head Model Weighted Mean"] , st.session_state["Vac_Res_preformance_dict"]["Head to Head County Weighted Mean"]] }
                         graph_lab_VR = 'Weighted Mean Sale Ratio'
 
                     elif graph_metric_VR== 'COD  ':
-                        graph_data_VR = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Vac_Res_preformance_dict"]["Trimmed Test COD"] , st.session_state["Vac_Res_preformance_dict"]["Trimmed Test NAL COD"]] }
+                        graph_data_VR = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Vac_Res_preformance_dict"]["Head to Head Model COD"] , st.session_state["Vac_Res_preformance_dict"]["Head to Head County COD"]] }
                         graph_lab_VR = 'COD'
 
                     elif graph_metric_VR == 'PRD  ':
-                        graph_data_VR = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Vac_Res_preformance_dict"]["Trimmed Test PRD"] , st.session_state["Vac_Res_preformance_dict"]["Trimmed Test NAL PRD"]] }
+                        graph_data_VR = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Vac_Res_preformance_dict"]["Head to Head Model PRD"] , st.session_state["Vac_Res_preformance_dict"]["Head to Head County PRD"]] }
                         graph_lab_VR = 'PRD'    
 
                     elif graph_metric_VR == 'Mean Absolute Error  ':     
-                        graph_data_VR = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Vac_Res_preformance_dict"]["Trimmed Test MAE"] , st.session_state["Vac_Res_preformance_dict"]["Trimmed Test NAL MAE"]] }
+                        graph_data_VR = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Vac_Res_preformance_dict"]["Head to Head Model MAE"] , st.session_state["Vac_Res_preformance_dict"]["Head to Head County MAE"]] }
                         graph_lab_VR = 'Mean Absolute Error'
 
 
@@ -4603,7 +4800,19 @@ else:
                     st.markdown('#####')
                     st.markdown('#####')
 
-                    st.markdown('#### Graphs to compare Model Performance to NAL Values On the Trimmed Test Set (Commercial Model)')
+                    st.markdown('#### Model vs county roll, on identical sales (Commercial Model)')
+
+                    ## ⚖️ Both bars come from the SAME sales - the ones
+                    ## where the model's ratio AND the county's ratio are
+                    ## both inside 0.3 to 1.7. Before, each side was
+                    ## measured on the subset kindest to itself.
+                    st.caption(
+                        "Both bars are measured on the same "
+                        + f"{st.session_state['Commercial_preformance_dict']['Comparable Records']:,} "
+                        + "sales - those where neither the model's ratio "
+                        + "nor the county's is an outlier. That is what "
+                        + "makes the two comparable."
+                    )
 
                     graph_metric_COM = st.radio(
                                             "## Model Metric:"
@@ -4615,23 +4824,23 @@ else:
 
                     if graph_metric_COM == 'R squared   ':  
                             
-                        graph_data_COM = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Commercial_preformance_dict"]["Trimmed Test R Squared"] , st.session_state["Commercial_preformance_dict"]["Trimmed Test NAL R Squared"]] }
+                        graph_data_COM = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Commercial_preformance_dict"]["Head to Head Model R Squared"] , st.session_state["Commercial_preformance_dict"]["Head to Head County R Squared"]] }
                         graph_lab_COM = 'R Squared'
 
                     elif graph_metric_COM == 'Weighted Mean Sale Ratio   ':
-                        graph_data_COM = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Commercial_preformance_dict"]["Trimmed Test Weighted Mean"] , st.session_state["Commercial_preformance_dict"]["Trimmed Test NAL Weighted Mean"]] }
+                        graph_data_COM = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Commercial_preformance_dict"]["Head to Head Model Weighted Mean"] , st.session_state["Commercial_preformance_dict"]["Head to Head County Weighted Mean"]] }
                         graph_lab_COM = 'Weighted Mean Sale Ratio'
 
                     elif graph_metric_COM == 'COD   ':
-                        graph_data_COM = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Commercial_preformance_dict"]["Trimmed Test COD"] , st.session_state["Commercial_preformance_dict"]["Trimmed Test NAL COD"]] }
+                        graph_data_COM = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Commercial_preformance_dict"]["Head to Head Model COD"] , st.session_state["Commercial_preformance_dict"]["Head to Head County COD"]] }
                         graph_lab_COM = 'COD'
 
                     elif graph_metric_COM == 'PRD   ':
-                        graph_data_COM = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Commercial_preformance_dict"]["Trimmed Test PRD"] , st.session_state["Commercial_preformance_dict"]["Trimmed Test NAL PRD"]] }
+                        graph_data_COM = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Commercial_preformance_dict"]["Head to Head Model PRD"] , st.session_state["Commercial_preformance_dict"]["Head to Head County PRD"]] }
                         graph_lab_COM = 'PRD'    
 
                     elif graph_metric_COM == 'Mean Absolute Error   ':     
-                        graph_data_COM = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Commercial_preformance_dict"]["Trimmed Test MAE"] , st.session_state["Commercial_preformance_dict"]["Trimmed Test NAL MAE"]] }
+                        graph_data_COM = { 'Value Source': ["Model" ,"NAL Values"] , 'Metric' : [st.session_state["Commercial_preformance_dict"]["Head to Head Model MAE"] , st.session_state["Commercial_preformance_dict"]["Head to Head County MAE"]] }
                         graph_lab_COM = 'Mean Absolute Error'
 
 
