@@ -121,21 +121,109 @@ PROJECT_ROOT = find_project_root()
 APP_WORKSPACE = PROJECT_ROOT / "app_workspace"
 
 
+## ── The bundled example: Lee County, Florida ─────────────────────────────
+##
+## The repository ships one real county roll so that the app can be tried
+## without finding data first. It is committed gzipped and unpacked once:
+##
+##     uv run python scripts/extract_data.py
+##
+## 🩹 This replaces a dropdown of all 67 Florida counties whose file paths
+## were absolute locations on one person's computer. Selecting a county
+## printed an encouraging message and then raised FileNotFoundError for
+## everybody else - 136 lines of code that could only ever work once.
+##
+## Lee County is the worked EXAMPLE. Any other county brings its own roll
+## through the upload boxes, which is the honest arrangement: we cannot
+## ship 67 counties of data, and an assessor already has their own.
+def find_sample_data():
+    """Look for the bundled roll in data/, if it has been unpacked yet.
+
+    Globbed rather than named, so next year's roll drops in without an
+    edit here - and so a reader who renames a file still gets found.
+    """
+    data_dir = PROJECT_ROOT / "data"
+
+    def first(pattern):
+        found = sorted(data_dir.glob(pattern))
+        return found[0] if found else None
+
+    return {
+        "dir": data_dir,
+        "nal": first("NAL*.csv"),   # the parcels
+        "sdf": first("SDF*.csv"),   # the sales
+        "shp": first("*.shp"),      # the parcel shapes (optional)
+    }
+
+
+## ── Reading a parcel shapefile without filling your RAM ─────────────────
+##
+## A county shapefile carries one attribute table row per parcel, and
+## counties put a LOT in it. Lee County's has 119 columns. We use exactly
+## two of them: PARCEL_ID, to match against the roll, and the geometry,
+## to get a point for each parcel.
+##
+## Measured on the bundled file:
+##
+##     all 119 columns      18.3 s   +1,097 MB of memory
+##     just PARCEL_ID        5.1 s     +169 MB
+##
+## ⚠️ That 1.1 GB arrives while the 285 MB roll is ALREADY loaded. On a
+## county laptop with 8 GB that is the difference between working and
+## swapping. We are designing for that machine, not for a workstation.
+def read_parcel_shapes(shapefile_path):
+    """Read a parcel shapefile, keeping only what the merge needs.
+
+    Falls back to a full read if the file does not have a PARCEL_ID
+    column, so somebody else's shapefile still loads - it will fail later
+    in the merge instead, which says plainly what is missing.
+    """
+    ## 📌 Expect a warning on the terminal when this runs:
+    ##
+    ##     RuntimeWarning: organizePolygons() received an unexpected
+    ##     geometry. Either a polygon with interior rings, or a polygon
+    ##     with less than 4 points, or a non-Polygon geometry.
+    ##
+    ## Nothing is broken. That is GDAL reporting something true about the
+    ## COUNTY'S data: some parcels are drawn with holes in them, and some
+    ## with too few points to be a polygon at all. Both are ordinary in a
+    ## real roll - a parcel with an excluded easement, a sliver left by a
+    ## survey correction.
+    ##
+    ## We do NOT suppress it. It is a data-quality signal about the roll
+    ## you just loaded, and the centroid of a parcel with an interior ring
+    ## can land somewhere surprising. The notebook keeps it for the same
+    ## reason.
+    try:
+        return gpd.read_file(shapefile_path, columns = ["PARCEL_ID"])
+    except Exception as e:
+        print(f' - could not read just PARCEL_ID ({e}); reading every column')
+        return gpd.read_file(shapefile_path)
+
+
 ## ── Which model answers questions about your roll ────────────────────────
 ##
 ## The label is what an assessor reads; the value is the model id sent to
-## the API. Opus is the default because this assistant writes SQL against
-## a real county roll, and a wrong query is a wrong answer about
-## somebody's property. The cheaper two are offered because an office
-## watching its budget should be able to make that trade knowingly.
+## the API.
+##
+## Haiku is the default. Most questions an assessor asks of a roll are
+## straightforward - a count, a median, a breakdown by neighbourhood,
+## a histogram - and it answers those perfectly well for a fraction of
+## the cost. An office trying this out should not discover the bill
+## before it discovers whether the tool is useful.
+##
+## 📌 Switch up for a question worth more thought. The harder ones here
+## are the multi-step ones, where a wrong SQL query becomes a confident
+## wrong answer about somebody's property - so if an answer looks off,
+## ask Sonnet or Opus the same question before believing either.
 ##
 ## ⚠️ Every model in this dict has been checked to accept the `effort`
 ## setting used in NAL_Chat_Session. If you add one, check that too -
 ## see the note there.
 CHAT_MODELS = {
-    "Claude Opus 5.5  -  most capable"        : "claude-opus-5-5",
-    "Claude Sonnet 5.5  -  faster and cheaper": "claude-sonnet-5-5",
-    "Claude Haiku 5.5  -  cheapest"           : "claude-haiku-5-5",
+    "Claude Haiku 5.5  -  fast and cheap, the default": "claude-haiku-5-5",
+    "Claude Sonnet 5.5  -  more capable"              : "claude-sonnet-5-5",
+    "Claude Opus 5.5  -  most capable"                : "claude-opus-5-5",
 }
 
 ## Only these three are sent the `effort` setting - see NAL_Chat_Session.
@@ -160,7 +248,7 @@ _env_model = (os.environ.get("ANTHROPIC_MODEL") or "").strip()
 if _env_model and _env_model not in VERIFIED_CHAT_MODELS:
     CHAT_MODELS[f"{_env_model}  -  from your .env file"] = _env_model
 
-DEFAULT_CHAT_MODEL = _env_model or "claude-opus-5-5"
+DEFAULT_CHAT_MODEL = _env_model or "claude-haiku-5-5"
 
 ## The dropdown needs a LABEL, not a model id. Every possible value of
 ## DEFAULT_CHAT_MODEL now has one, because an unlisted model just got
@@ -284,8 +372,9 @@ if "Password_Count" not in st.session_state:
 if "Valuation_Year" not in st.session_state:
     st.session_state['Valuation_Year'] = 2025
 
-if "County_Selected" not in st.session_state:
-    st.session_state['County_Selected'] = None
+## Where the data in front of you came from, for the line that reports it.
+if "Data_Source" not in st.session_state:
+    st.session_state['Data_Source'] = None
 
 if "State_Coords_Selected" not in st.session_state:
     st.session_state['State_Coords_Selected'] = None
@@ -408,74 +497,6 @@ if "Display_Plot" not in st.session_state:
 if "Chat_Bot_Plot" not in st.session_state:
     st.session_state["Chat_Bot_Plot"] = 0
 
-if 'County_List_Loc' not in st.session_state:
-    st.session_state['County_List_Loc']  = {"Alachua (11)" : "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_11Alachua_F.csv"
-                                            ,"Baker (12)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_12Baker_F.csv"
-                                            , "Bay (13)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_13Bay_F.csv"
-                                            , "Bradford (14)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_14Bradford_F.csv"
-                                            , "Brevard (15)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_15Brevard_F.csv"
-                                            , "Broward (16)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_16Broward_F.csv"
-                                            , "Calhoun (17)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_17Calhoun_F.csv"
-                                            , "Charlotte (18)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_18Charlotte_F.csv"
-                                            , "Citrus (19)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_19Citrus_F.csv"
-                                            , "Clay (20)"   : "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_20Clay_F.csv"
-                                            , "Collier (21)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_21Collier_F.csv"
-                                            , "Columbia (22)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_22Columbia_F.csv"
-                                            , "Dade (23)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_23Dade_F.csv"
-                                            , "DeSoto (24)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_24DeSoto_F.csv"
-                                            , "Dixie (25)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_25Dixie_F.csv"
-                                            , "Duval (26)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_26Duval_F.csv"
-                                            , "Escambia (27)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_27Escambia_F.csv"
-                                            , "Flagler (28)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_28Flagler_F.csv"
-                                            , "Franklin (29)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_29Franklin_F.csv"
-                                            , "Gadsden (30)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_30Gadsden_F.csv"
-                                            , "Gilchrist (31)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_31Gilchrist_F.csv"
-                                            , "Glades (32)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_32Glades_F.csv"
-                                            , "Gulf (33)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_33Gulf_F.csv"
-                                            , "Hamilton (34)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_34Hamilton_F.csv"
-                                            , "Hardee (35)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_35Hardee_F.csv"
-                                            , "Hendry (36)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_36Hendry_F.csv"
-                                            , "Hernando (37)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_37Hernando_F.csv"
-                                            ,"Hihglands (38)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_38Highlands_F.csv"
-                                            , "Hillsborough (39)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_39Hillsborough_F.csv"
-                                            , "Holmes (40)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_40Holmes_F.csv"
-                                            , "Indian River (41)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_41Indian River_F.csv"
-                                            , "Jackson (42)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_42Jackson_F.csv"
-                                            , "Jefferson (43)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_43Jefferson_F.csv"
-                                            , "Lafayette (44)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_44Lafayette_F.csv"
-                                            , "Lake (45)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_45Lake_F.csv"
-                                            , "Lee (46)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_46Lee_F.csv"
-                                            , "Leon (47)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_47Leon_F.csv"
-                                            , "Levy (48)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_48Levy_F.csv"
-                                            , "Liberty (49)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_49Liberty_F.csv"
-                                            , "Madison (50)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_50Madison_F.csv"
-                                            , "Manatee (51)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_51Manatee_F.csv"
-                                            , "Marion (52)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_52Marion_F.csv"
-                                            , "Martin (53)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_53Martin_F.csv"
-                                            , "Monroe (54)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_54Monroe_F.csv"
-                                            , "Nassau (55)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_55Nassau_F.csv"
-                                            , "Okaloosa (56)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_56Okaloosa_F.csv"
-                                            , "Okeechobee (57)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_57Okeechobee_F.csv"
-                                            , "Orange (58)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_58Orange_F.csv"
-                                            , "Osceola (59)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_59Osceola_F.csv"
-                                            , "Palm Beach (60)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_60Palm Beach_F.csv"
-                                            , "Pasco (61)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_61Pasco_F.csv"
-                                            , "Pinellas (62)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_62Pinellas_F.csv"
-                                            , "Polk (63)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_63Polk_F.csv"
-                                            , "Putnam (64)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_64Putnam_F.csv"
-                                            , "St. Johns (65)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_65Saint Johns_F.csv"
-                                            , "St. Lucie (66)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_66Saint Lucie_F.csv"
-                                            , "Santa Rosa (67)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_67Santa Rosa_F.csv"
-                                            , "Sarasota (68)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_68Sarasota_F.csv"
-                                            , "Seminole (69)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_69Seminole_F.csv"
-                                            , "Sumter (70)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_70Sumter_F.csv"
-                                            , "Suwannee (71)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_71Suwannee_F.csv"
-                                            , "Taylor (72)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_72Taylor_F.csv"
-                                            , "Union (73)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_73Union_F.csv"
-                                            , "Volusia (74)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_74Volusia_F.csv"
-                                            , "Wakulla (75)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_75Wakulla_F.csv"
-                                            , "Walton (76)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_76Walton_F.csv"
-                                            , "Washington (77)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2024NAL\\2024F\\NAL_2024_77Washington_F.csv"}
 
 
 if  'DOR_COS_ADJ_DICT' not in st.session_state:
@@ -628,75 +649,10 @@ Model_Outcome = ['Adjusted_Sale_Price']
 
 
 
-def Update_County_List_Loc():
-    if st.session_state['Valuation_Year'] != 2025: 
-        st.session_state['County_List_Loc'] = {"Alachua (11)" : "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_11Alachua_F.csv"
-                                            ,"Baker (12)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_12Baker_F.csv"
-                                            , "Bay (13)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_13Bay_F.csv"
-                                            , "Bradford (14)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_14Bradford_F.csv"
-                                            , "Brevard (15)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_15Brevard_F.csv"
-                                            , "Broward (16)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_16Broward_F.csv"
-                                            , "Calhoun (17)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_17Calhoun_F.csv"
-                                            , "Charlotte (18)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_18Charlotte_F.csv"
-                                            , "Citrus (19)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_19Citrus_F.csv"
-                                            , "Clay (20)"   : "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_20Clay_F.csv"
-                                            , "Collier (21)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_21Collier_F.csv"
-                                            , "Columbia (22)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_22Columbia_F.csv"
-                                            , "Dade (23)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_23Dade_F.csv"
-                                            , "DeSoto (24)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_24DeSoto_F.csv"
-                                            , "Dixie (25)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_25Dixie_F.csv"
-                                            , "Duval (26)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_26Duval_F.csv"
-                                            , "Escambia (27)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_27Escambia_F.csv"
-                                            , "Flagler (28)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_28Flagler_F.csv"
-                                            , "Franklin (29)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_29Franklin_F.csv"
-                                            , "Gadsden (30)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_30Gadsden_F.csv"
-                                            , "Gilchrist (31)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_31Gilchrist_F.csv"
-                                            , "Glades (32)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_32Glades_F.csv"
-                                            , "Gulf (33)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_33Gulf_F.csv"
-                                            , "Hamilton (34)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_34Hamilton_F.csv"
-                                            , "Hardee (35)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_35Hardee_F.csv"
-                                            , "Hendry (36)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_36Hendry_F.csv"
-                                            , "Hernando (37)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_37Hernando_F.csv"
-                                            ,"Hihglands (38)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_38Highlands_F.csv"
-                                            , "Hillsborough (39)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_39Hillsborough_F.csv"
-                                            , "Holmes (40)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_40Holmes_F.csv"
-                                            , "Indian River (41)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_41Indian River_F.csv"
-                                            , "Jackson (42)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_42Jackson_F.csv"
-                                            , "Jefferson (43)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_43Jefferson_F.csv"
-                                            , "Lafayette (44)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_44Lafayette_F.csv"
-                                            , "Lake (45)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_45Lake_F.csv"
-                                            , "Lee (46)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_46Lee_F.csv"
-                                            , "Leon (47)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_47Leon_F.csv"
-                                            , "Levy (48)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_48Levy_F.csv"
-                                            , "Liberty (49)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_49Liberty_F.csv"
-                                            , "Madison (50)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_50Madison_F.csv"
-                                            , "Manatee (51)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_51Manatee_F.csv"
-                                            , "Marion (52)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_52Marion_F.csv"
-                                            , "Martin (53)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_53Martin_F.csv"
-                                            , "Monroe (54)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_54Monroe_F.csv"
-                                            , "Nassau (55)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_55Nassau_F.csv"
-                                            , "Okaloosa (56)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_56Okaloosa_F.csv"
-                                            , "Okeechobee (57)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_57Okeechobee_F.csv"
-                                            , "Orange (58)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_58Orange_F.csv"
-                                            , "Osceola (59)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_59Osceola_F.csv"
-                                            , "Palm Beach (60)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_60Palm Beach_F.csv"
-                                            , "Pasco (61)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_61Pasco_F.csv"
-                                            , "Pinellas (62)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_62Pinellas_F.csv"
-                                            , "Polk (63)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_63Polk_F.csv"
-                                            , "Putnam (64)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_64Putnam_F.csv"
-                                            , "St. Johns (65)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_65Saint Johns_F.csv"
-                                            , "St. Lucie (66)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_66Saint Lucie_F.csv"
-                                            , "Santa Rosa (67)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_67Santa Rosa_F.csv"
-                                            , "Sarasota (68)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_68Sarasota_F.csv"
-                                            , "Seminole (69)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_69Seminole_F.csv"
-                                            , "Sumter (70)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_70Sumter_F.csv"
-                                            , "Suwannee (71)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_71Suwannee_F.csv"
-                                            , "Taylor (72)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_72Taylor_F.csv"
-                                            , "Union (73)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_73Union_F.csv"
-                                            , "Volusia (74)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_74Volusia_F.csv"
-                                            , "Wakulla (75)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_75Wakulla_F.csv"
-                                            , "Walton (76)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_76Walton_F.csv"
-                                            , "Washington (77)": "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\2023NAL\\2023F\\NAL_2023_77Washington_F.csv"}
+## `Update_County_List_Loc()` lived here. It swapped the 67-county path
+## dictionary for a second copy pointing at the previous year's files -
+## another 68 lines of absolute paths on one person's machine. Both are
+## gone; see find_sample_data() near the top of this file.
 
 
 
@@ -722,9 +678,6 @@ def set_User_API_key():
 def update_COS_Input():
     st.session_state["COS_ADJ_KEY"] =  st.session_state["DOR_COS_ADJ_DICT"][st.session_state['current_Adjust_dor'] ]
     print('UPdated COS Key to ' + str(st.session_state["COS_ADJ_KEY"] ) + ' for DOR ' + st.session_state['current_Adjust_dor'] )          
-
-def set_nal_data():
-    print(st.session_state["County_Selected"])
 
 ### Sales Ratio Function  ###
 
@@ -1461,18 +1414,12 @@ def Password_Entry(u,p):
 ### Data Manipulation Functions ###
 
 def Merge_data(NAL_Data , SDF_Data , GIS_Data):
-    using_last_NAL = False
-  
-    if NAL_Data is not None and SDF_Data is not None:
-        SDF = SDF_Data.copy()
-        NAL = NAL_Data.copy() 
-    else : 
-        SDF = SDF_Data.copy()
-        NAL = pd.read_csv( st.session_state['County_List_Loc'][st.session_state['County_Selected']]
-                            , low_memory = False
-                            )
-        st.session_state["NAL"] = NAL.copy() ### CHECK THIS CODE !!!!!! ### 
-        using_last_NAL = True
+    ## Both frames are already loaded by the time we get here - the caller
+    ## is gated on it. There used to be an `else` branch that read a roll
+    ## off disk using the 67-county path dictionary; it is gone with the
+    ## dictionary, along with the `using_last_NAL` flag it set.
+    SDF = SDF_Data.copy()
+    NAL = NAL_Data.copy()
 
     if len(SDF[~SDF['PARCEL_ID'].isin(NAL['PARCEL_ID'])]) > 0:
         SDF = SDF[SDF['PARCEL_ID'].isin(NAL['PARCEL_ID'])].copy()
@@ -1559,11 +1506,17 @@ def Merge_data(NAL_Data , SDF_Data , GIS_Data):
         st.session_state["NAL"] = All_NAL_Data_With_GIS.copy()
     
 
-    ## Trying to quickly clean if using last year NAL 
-    if using_last_NAL == True:
-        NAL_merged = NAL_merged[ ~( (NAL_merged['DOR_UC'].isin([0,10,40])) & (NAL_merged['VI_CD'].isin(['I']) ) )  ]
-        NAL_merged = NAL_merged[ ~( ((~NAL_merged['DOR_UC'].isin([0,10,40]))) & (NAL_merged['VI_CD'].isin(['V'])) )  ]
-
+    ## A block here used to drop rows whose use code and vacant/improved
+    ## flag disagreed - a parcel coded vacant that sold as improved, and
+    ## the reverse. It ran ONLY when the roll had been read off disk from
+    ## the old county dictionary, i.e. only for last year's file, so it
+    ## never ran for an uploaded roll. It is gone with that branch.
+    ##
+    ## 📌 Worth revisiting on its own merits: that disagreement is a real
+    ## data-quality signal on any roll, not only an old one. But it was
+    ## never applied to the data a reader actually loads, so turning it on
+    ## for everyone would be a NEW filter, not a preserved one - and it
+    ## would silently change every number in the app.
 
     ## Fixing Data types 
     if NAL['NBRHD_CD'].dtype == 'object': 
@@ -3031,23 +2984,18 @@ else:
     ##
     ## Only one of the two can win, and which one is not obvious from
     ## reading the code - so we keep the single source of truth.
+    ## The year you are valuing TO. It sets Time_to_Sale for every parcel,
+    ## so the model prices them as at this year rather than at their sale
+    ## date. There is no callback on it any more - the one that was here
+    ## swapped a dictionary of dead file paths.
     st.sidebar.number_input("Valuation Year"
                             , key = 'Valuation_Year'
-                            , on_change = Update_County_List_Loc
                             , step = 1)
-    st.session_state['County_Selected'] = st.sidebar.selectbox("Select Your County"
-                                                            , list(st.session_state['County_List_Loc'] .keys())
-                                                            , index = None
-                                                            , placeholder = "Select County"
-                                                        ##    , on_change = set_nal_data
-                                                            )
-    
 
     st.session_state['State_Coords_Selected'] = st.sidebar.selectbox("Select Your Coordinate System"
                                                                     , st.session_state['EPSG_List']
                                                                     , index = None
                                                                     , placeholder = "Select EPSG"
-                                                                ##    , on_change = set_nal_data
                                                                     )
                                                             
 
@@ -3069,9 +3017,56 @@ else:
 
 
     st.markdown('##')
-    st.markdown('## Data Uploading')
+    st.markdown('## Load Your Data')
     st.write("---")
 
+    ## ── Option 1: the bundled Lee County example ─────────────────────────
+    st.markdown('#### :package: Option 1 - try it on the bundled example')
+
+    _sample = find_sample_data()
+
+    if _sample["nal"] and _sample["sdf"]:
+        st.markdown(
+            "One real county roll ships with this repository: **Lee County, "
+            "Florida**, used with the county's permission. It is the same data "
+            "the notebook walks through, so you can compare the two."
+        )
+        if st.button("Load the Lee County example"
+                     , use_container_width = True
+                     , type = "primary"):
+            with st.status("Reading the roll... the parcel shapes take a few "
+                           "seconds", expanded = True) as _status:
+                st.write("parcels...")
+                st.session_state["NAL"] = pd.read_csv(_sample["nal"], low_memory = False)
+                st.write("sales...")
+                st.session_state["SDF"] = pd.read_csv(_sample["sdf"], low_memory = False)
+                if _sample["shp"]:
+                    st.write("parcel shapes... (a GDAL warning on the "
+                             "terminal here is normal - see below)")
+                    st.session_state["GIS"] = read_parcel_shapes(_sample["shp"])
+                st.session_state["Data_Source"] = "the bundled Lee County example"
+                _status.update(label = "Lee County loaded.", state = "complete"
+                               , expanded = False)
+    else:
+        ## The archives are committed; the extracted files are not. So a
+        ## fresh clone lands here, and this is the one setup step.
+        st.info(
+            "The bundled Lee County data has not been unpacked yet. It ships "
+            "gzipped to fit on GitHub, and one command unpacks it:\n\n"
+            "```\nuv run python scripts/extract_data.py\n```\n\n"
+            f"Looking in `{_sample['dir']}`. Nothing is downloaded - the "
+            "archives are already in your clone."
+        )
+
+    st.markdown('#####')
+
+    ## ── Option 2: the reader's own county ────────────────────────────────
+    st.markdown('#### :open_file_folder: Option 2 - use your own county')
+    st.markdown(
+        "Florida DOR publishes the NAL and SDF files for every county. "
+        "Upload yours below. The parcel shapefile is optional - without it "
+        "the model uses neighbourhood codes instead of coordinates."
+    )
 
     ##Loading NAL File
 
@@ -3088,11 +3083,6 @@ else:
         #print(type(NAL))
         st.markdown(""":green[ Your NAL Loaded Succesfully! There are """ + str(st.session_state["NAL"].shape[0]) + """ rows of data in your NAL File ]""")
 
-    if st.session_state['County_Selected'] is not None and st.session_state["NAL"] is None:
-        st.markdown( f""":orange[ By Selecting your county we will use the last year NAL file for {st.session_state['County_Selected']} if you do not upload a new NAL file, for the most accurate results please upload a new NAL file ]""")
-
-        
-
     st.markdown('#####')
     SDF_Files = st.file_uploader("## Upload SDF file"
                                 , type=["csv"]) 
@@ -3106,28 +3096,54 @@ else:
         st.markdown(""":green[ Your SDF Loaded Succesfully! There are """ + str(st.session_state["SDF"].shape[0]) + """ rows of data in your SDF File ]""")
 
 
-    st.markdown('#####')    
-    # GIS_Files = st.file_uploader("## Upload GIS file", type=["shp"]) 
+    st.markdown('#####')
 
-    GIS_File_Path = st.text_input("## Enter Path to GIS file"
-                                , placeholder = "Enter Path to GIS file")
+    ## ⚠️ Why this is a PATH box and not an upload box.
+    ##
+    ## A shapefile is not one file. It is a set that must stay together:
+    ##
+    ##     .shp   the shapes themselves
+    ##     .dbf   the attribute table - this is where PARCEL_ID lives
+    ##     .shx   the index that ties the two together
+    ##     .prj   the projection: WHERE on the planet those shapes are
+    ##
+    ## Upload only the .shp and there is no PARCEL_ID to match against the
+    ## roll, so it cannot be used at all. Pointing at the .shp on disk lets
+    ## the library pick up its siblings, which is what it expects.
+    ##
+    ## 📌 If your county did not ship a .prj - ours did not - the shapes
+    ## load with no idea where they are. Pick your coordinate system in the
+    ## sidebar; for west Florida that is EPSG:2237.
+    GIS_File_Path = st.text_input(
+        "Path to your parcel shapefile (the .shp)"
+        , placeholder = r"C:\path\to\your_county_parcels.shp"
+        , help = "Keep the .shp, .dbf, .shx and .prj together in one folder."
+    )
     
     if st.button("Load GIS File"):
         with st.status("Loading your GIS File... This may take a few seconds", expanded=True) as status_message:
-            GIS_File_Path_clean = GIS_File_Path.replace("/", '\\')
-            st.session_state["GIS"] = gpd.read_file(GIS_File_Path_clean)
-            status_message.update(label="Wow that was tougher than I thought but I am done!", state="complete", expanded=False)
+            ## 🩹 This used to do GIS_File_Path.replace("/", "\\"), which
+            ## hardcoded Windows separators and broke any path a macOS or
+            ## Linux reader typed. Path() handles either on every platform.
+            st.session_state["GIS"] = read_parcel_shapes(Path(GIS_File_Path.strip()))
+            status_message.update(label = "Parcel shapes loaded."
+                                  , state = "complete"
+                                  , expanded = False)
 
     if st.session_state["GIS"] is not None:
-        st.markdown(""":green[GIS File Loaded! There are """ + str(st.session_state["GIS"].shape[0]) + """ rows of data in your GIS File ]""")
+        st.markdown(
+            ":green[Parcel shapes loaded: "
+            + f"{st.session_state['GIS'].shape[0]:,} parcels, "
+            + f"CRS {st.session_state['GIS'].crs}]"
+        )
+        st.caption(
+            "If your terminal showed an `organizePolygons()` warning while "
+            "these loaded, nothing is wrong. It means some parcels in your "
+            "county are drawn with holes in them, or with too few points to "
+            "be a polygon - both normal on a real roll. We leave the warning "
+            "visible because it tells you something about your data."
+        )
 
-    # if GIS_Files is not None:
-    #     if st.session_state["GIS"] is None:
-    #         with st.spinner("One second just a little tidying up to do!"):
-    #             st.session_state["GIS"] = gpd.read_file(GIS_Files)
-
-    #    st.markdown(":green[GIS File Loaded!]")
-    st.markdown('#####')
 
     if st.session_state['Cost_Of_Sale_Adjustment_Toggle'] == True:
         st.markdown('##')
@@ -3174,7 +3190,31 @@ else:
         st.markdown('#####')
 
 
-    if (st.session_state["SDF"]  is not None) and ((st.session_state["NAL"] is not None or st.session_state['County_Selected'] is not None   ) ):
+    ## ── What is actually loaded right now ────────────────────────────────
+    ## One line, whichever route was taken. It survives a rerun because it
+    ## reads session state rather than the button that was clicked.
+    if st.session_state["NAL"] is not None or st.session_state["SDF"] is not None:
+        _loaded = []
+        if st.session_state["NAL"] is not None:
+            _loaded.append(f"**{st.session_state['NAL'].shape[0]:,}** parcels")
+        if st.session_state["SDF"] is not None:
+            _loaded.append(f"**{st.session_state['SDF'].shape[0]:,}** sales")
+        if st.session_state["GIS"] is not None:
+            _loaded.append(f"**{st.session_state['GIS'].shape[0]:,}** parcel shapes")
+
+        _from = st.session_state["Data_Source"]
+        st.success("Loaded" + (f" from {_from}" if _from else "") + ": "
+                   + " | ".join(_loaded))
+
+        if st.session_state["SDF"] is None:
+            st.warning("A sales file (SDF) is still needed before the data "
+                       "can be merged - a model needs sales to learn from.")
+
+    st.markdown('#####')
+
+    ## Everything below needs BOTH files. There is no longer a path where
+    ## the app reads a roll off disk by itself, so both must really be here.
+    if (st.session_state["SDF"] is not None) and (st.session_state["NAL"] is not None):
         st.markdown('##')
         st.markdown('## Data Pre-Processing')
         st.write("---")
