@@ -155,6 +155,27 @@ dependencies = [
     # this project and nowhere else.
     "ipykernel>=6.29",
     "jupyterlab>=4.2",
+    #
+    # ipywidgets is here for one specific reason: without it, the very first
+    # import cell prints a warning.
+    #
+    # `tqdm` (pulled in by shap, optuna and others) checks whether it is
+    # running inside a Jupyter kernel. If it is, it wants ipywidgets so it can
+    # draw a real progress bar — and if ipywidgets is absent it warns, then
+    # falls back to plain text:
+    #
+    #     TqdmWarning: IProgress not found. Please update jupyter and ipywidgets.
+    #
+    # Nothing is broken when that happens. But it is the SECOND thing a reader
+    # ever sees in this notebook, directly under the cell that loads the
+    # libraries, and "warning" on line one of a tutorial is a bad first
+    # impression. Installing it costs about a megabyte and buys working
+    # progress bars for the slower SHAP cells.
+    #
+    # Note it only warns inside a kernel — run the same imports in a plain
+    # Python process and tqdm falls back silently, which is why this is easy
+    # to miss when testing from a script.
+    "ipywidgets>=8.1",
 ]
 
 
