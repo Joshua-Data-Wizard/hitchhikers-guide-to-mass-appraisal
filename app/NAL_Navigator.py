@@ -86,7 +86,18 @@ import matplotlib.pyplot as plt
 from matplotlib.pyplot import figure
 import seaborn as sns
 
-#st.set_page_config(layout="wide")
+## Wide layout, on purpose. This was commented out, and the app rendered
+## in Streamlit's default narrow centred column - which is fine for a
+## blog post and wrong for this. The DOR summary tables are NINE columns
+## wide and the model performance tables sit side by side; in the narrow
+## column they wrap into something an assessor has to decode rather than
+## read.
+##
+## This must stay the FIRST Streamlit call in the file. set_page_config
+## raises if anything else has already drawn to the page.
+st.set_page_config(page_title = "NAL Navigator"
+                   , page_icon = ":house:"
+                   , layout = "wide")
 
 
 ## ── Where the app writes its own working files ───────────────────────────
