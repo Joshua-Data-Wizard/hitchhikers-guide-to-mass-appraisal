@@ -31,6 +31,7 @@ from pyproj import CRS, Transformer
 
 ## System 
 import os
+from pathlib import Path
 #
 # Read a .env file if one is present, so secrets and settings live in a
 # gitignored file instead of in this source code. See .env.example.
@@ -69,10 +70,13 @@ from sklearn.metrics import mean_absolute_error
 # Local Database 
 import sqlite3
 
-## Google GenAI 
-from google import genai
-from google.genai import types
-from google.api_core import retry 
+## The hosted language model behind the chat assistant at the end of the
+## app. One variable is needed - ANTHROPIC_API_KEY - and .env.example
+## says where to get it. A reader who never opens the chat section never
+## needs a key; everything up to and including the valuation models runs
+## with no API access at all.
+import anthropic
+from anthropic import beta_tool
 
 ## Visualizing Data 
 ## Visualizing Data
@@ -82,6 +86,89 @@ from matplotlib.pyplot import figure
 import seaborn as sns
 
 #st.set_page_config(layout="wide")
+
+
+## ── Where the app writes its own working files ───────────────────────────
+##
+## The chat assistant needs somewhere to put the small SQLite database it
+## queries. That location must be worked out at run time.
+##
+## 🩹 An earlier version of this file hardcoded an absolute path:
+##
+##     C:\\Users\\<a name>\\...\\Contracting\\NAL Project\\Data\\NAL_Navigator.db
+##
+## That folder exists on exactly one computer. On that computer the chat
+## worked perfectly; everywhere else it raised, which is the most
+## expensive kind of bug because the person who could fix it is the one
+## person who never sees it.
+def find_project_root(marker = 'pyproject.toml'):
+    """Climb from this file towards the root until `marker` turns up.
+
+    Looking for a landmark beats counting `.parent` calls, because the
+    answer stays right no matter which directory you launched from.
+    """
+    here = Path(__file__).resolve().parent
+    for candidate in [here, *here.parents]:
+        if (candidate / marker).exists():
+            return candidate
+    return here
+
+PROJECT_ROOT = find_project_root()
+
+## Everything the app generates for itself goes here. It is gitignored,
+## and you can delete the whole folder without losing anything you cannot
+## rebuild by pressing the buttons again.
+APP_WORKSPACE = PROJECT_ROOT / "app_workspace"
+
+
+## ── Which model answers questions about your roll ────────────────────────
+##
+## The label is what an assessor reads; the value is the model id sent to
+## the API. Opus is the default because this assistant writes SQL against
+## a real county roll, and a wrong query is a wrong answer about
+## somebody's property. The cheaper two are offered because an office
+## watching its budget should be able to make that trade knowingly.
+##
+## ⚠️ Every model in this dict has been checked to accept the `effort`
+## setting used in NAL_Chat_Session. If you add one, check that too -
+## see the note there.
+CHAT_MODELS = {
+    "Claude Opus 5.5  -  most capable"        : "claude-opus-5-5",
+    "Claude Sonnet 5.5  -  faster and cheaper": "claude-sonnet-5-5",
+    "Claude Haiku 5.5  -  cheapest"           : "claude-haiku-5-5",
+}
+
+## Only these three are sent the `effort` setting - see NAL_Chat_Session.
+## This is captured BEFORE anything is added below, so a model that comes
+## from a .env file never inherits a parameter nobody has tested with it.
+VERIFIED_CHAT_MODELS = set(CHAT_MODELS.values())
+
+
+## ANTHROPIC_MODEL in your .env chooses the starting model. If it names
+## something not in the list above - you may have access to a model this
+## app does not know about - it gets its own entry in the dropdown rather
+## than being thrown away.
+##
+## 🩹 It WAS being thrown away. An unlisted model had no dropdown label,
+## so the label lookup fell back to the first entry and the app quietly
+## used Opus while a message on the terminal claimed otherwise. Honouring
+## the setting and showing it on screen beats explaining it in a print
+## nobody reads - and the module re-runs on every click, so that print
+## appeared eight times in one short session.
+_env_model = (os.environ.get("ANTHROPIC_MODEL") or "").strip()
+
+if _env_model and _env_model not in VERIFIED_CHAT_MODELS:
+    CHAT_MODELS[f"{_env_model}  -  from your .env file"] = _env_model
+
+DEFAULT_CHAT_MODEL = _env_model or "claude-opus-5-5"
+
+## The dropdown needs a LABEL, not a model id. Every possible value of
+## DEFAULT_CHAT_MODEL now has one, because an unlisted model just got
+## added above; the fallback is belt and braces.
+DEFAULT_CHAT_MODEL_LABEL = next(
+    (label for label, model in CHAT_MODELS.items() if model == DEFAULT_CHAT_MODEL),
+    list(CHAT_MODELS.keys())[0],
+)
 
 ## IF RUNNING LATEST WINDOWS VERSION OF STREAMLIT, UNCOMMENT THE CODE BELOW
 #os.environ['LOKY_MAX_CPU_COUNT'] = '10'
@@ -286,14 +373,25 @@ if 'Model_Features_Commercial' not in st.session_state:
 if  "Chat_Launched" not in st.session_state:
     st.session_state['Chat_Launched'] = None  
 
-if  "Google_Key" not in st.session_state:
-    st.session_state['Google_Key'] = None 
+## The key read from .env at start-up (may be None - that is fine until
+## somebody opens the chat section).
+if  "Anthropic_Key" not in st.session_state:
+    st.session_state['Anthropic_Key'] = os.environ.get('ANTHROPIC_API_KEY')
 
-if  "Provided_Google_Key" not in st.session_state:
-    st.session_state['Provided_Google_Key'] = None 
+## A key typed into the box in the chat section, which overrides the above.
+if  "Provided_Anthropic_Key" not in st.session_state:
+    st.session_state['Provided_Anthropic_Key'] = None 
 
+## 🩹 This used to be seeded to None, and the selectbox that owns the key
+## passed `index = 0` to choose its own default. A Streamlit widget whose
+## key is ALREADY in session state uses the session-state value and
+## ignores its own default - so the model you picked was discarded and the
+## app silently fell back to whatever .env said.
+##
+## Unlike `value =` on a number_input, a selectbox's `index =` does not
+## warn about this, so it failed quietly. Seeding a real label is the fix.
 if "Chat_Model_Selected" not in st.session_state:
-        st.session_state['Chat_Model_Selected'] = None
+        st.session_state['Chat_Model_Selected'] = DEFAULT_CHAT_MODEL_LABEL
 
 if "Chat_Bot_Data_Base" not in st.session_state:
         st.session_state['Chat_Bot_Data_Base'] = None
@@ -808,8 +906,10 @@ class DOR_Summary_Report_Generator ():
         # Sort the DataFrame by the 'JustUncapped' column in ascending order
         self.Sorted_StratumPop = self.StratumPop_unique.sort_values(by=self.NAL_Value_Column)
 
-        self.Sorted_StratumPop.reset_index(drop=True
-                                            , inplace=True)
+        ## `inplace=True` is on its way out of pandas (PDEP-8) and warns
+        ## today. Assigning the result back does the same job and makes it
+        ## obvious which frame changed.
+        self.Sorted_StratumPop = self.Sorted_StratumPop.reset_index(drop = True)
 
         self.trimmed = self.Sorted_StratumPop.loc[0:self.csuti(self.Sorted_StratumPop[self.NAL_Value_Column], (self.Sorted_StratumPop[self.NAL_Value_Column].sum())/20)].copy()
 
@@ -899,15 +999,15 @@ class DOR_Summary_Report_Generator ():
 
         self.sortedvalues_Untrimmed = self.Sorted_StratumPop.sort_values(by = self.NAL_Value_Column)
        
-        self.sortedvalues_Untrimmed.reset_index(drop=True, inplace=True)
+        self.sortedvalues_Untrimmed = self.sortedvalues_Untrimmed.reset_index(drop = True)
 
         self.G0 = self.Sorted_StratumPop.sort_values(by = self.NAL_Value_Column)
        
-        self.G0.reset_index(drop=True, inplace=True)
+        self.G0 = self.G0.reset_index(drop = True)
 
         self.sortedvalues = self.G0[self.G0[self.NAL_Value_Column] > self.trimmed[self.NAL_Value_Column].max()]
         #self.sortedvalues = self.StratumPop_unique.sort_values(by = self.NAL_Value_Column)
-        self.sortedvalues.reset_index(drop=True, inplace=True)
+        self.sortedvalues = self.sortedvalues.reset_index(drop = True)
 
         #self.StratumPop_trimmed = self.sortedvalues.loc[(self.csuti(self.sortedvalues[self.NAL_Value_Column], (self.sortedvalues[self.NAL_Value_Column].sum())*.05)+1):self.sortedvalues[self.NAL_Value_Column].idxmax()]
 
@@ -996,8 +1096,45 @@ class DOR_Summary_Report_Generator ():
 
         # # Create an empty DataFrame
 
-        self.Stratum = pd.DataFrame(columns=['STR', 'GRP', 'LOW', 'HIGH','#SAMP','COV','P.A SAMP VAL','TOT PAR','P.A JUST VAL'])
-        self.Stratum_Text = pd.DataFrame(columns=['STR', 'GRP', 'LOW', 'HIGH','#SAMP','COV','P.A SAMP VAL','TOT PAR','P.A JUST VAL'])
+        ## 🧨 `index = range(7)` and `dtype = object` are load-bearing here.
+        ## Both of them. Removing either brings the warnings back.
+        ##
+        ## The frames below are the LAYOUT of a DOR report, not a dataset.
+        ## Rows 0-4 are value groups, row 5 is a totals line, and row 6
+        ## reads   "" | "COD:" | 9.36 | "PRD:" | 101.77 | "95 %" | ...
+        ## so a single column genuinely holds a number in one row and a
+        ## text label in the next.
+        ##
+        ## Left to itself, pandas types these columns float64 from the
+        ## first rows and then warns that writing "COD:" into them is
+        ## deprecated - and in pandas 4 that becomes an ERROR, which would
+        ## take the whole summary report down with it.
+        ##
+        ## 🩹 `dtype = object` ALONE does not fix it, which is worth knowing
+        ## because it looks like it should. Measured on the real report:
+        ##
+        ##     the code as it was                    8 warnings
+        ##     empty frame + dtype=object            8 warnings  <- no help
+        ##     rows pre-allocated + dtype=object     0 warnings  <- this
+        ##
+        ## Assigning `.loc[0]` to an EMPTY frame is an *enlargement*, and
+        ## enlargement re-infers each column's dtype from the values being
+        ## written - so the columns went straight back to float64 before
+        ## row 6 ever arrived. Handing the frame its rows up front makes
+        ## those writes ordinary assignments into existing object columns,
+        ## which never re-infer.
+        ##
+        ## Every cell is byte-for-byte what it was. Only the dtype differs.
+        Stratum_Columns = ['STR', 'GRP', 'LOW', 'HIGH', '#SAMP', 'COV'
+                           , 'P.A SAMP VAL', 'TOT PAR', 'P.A JUST VAL']
+
+        ## 7 rows: five value groups, a totals row, and the COD/PRD row.
+        self.Stratum = pd.DataFrame(index = range(7)
+                                    , columns = Stratum_Columns
+                                    , dtype = object)
+        self.Stratum_Text = pd.DataFrame(index = range(7)
+                                         , columns = Stratum_Columns
+                                         , dtype = object)
 
         # # Fill out each row manually
         self.Stratum.loc[0] = [self.Stratum_Number + ' S'
@@ -1146,8 +1283,19 @@ class DOR_Summary_Report_Generator ():
                                , str(round(self.confidence_interval[1],2))]
        
 
-        self.GroupLevelStatistics = pd.DataFrame(columns=['Stratum', 'Group', 'N', 'Median','Mean','COD','PRD','Weighted Mean'])
-        self.GroupLevelStatistics_Text = pd.DataFrame(columns=['Stratum', 'Group', 'N', 'Median','Mean','COD','PRD','Weighted Mean'])
+        ## Same reason as the Stratum frames above, and the same two-part
+        ## fix: the last row's Group cell reads 'Total' while the four rows
+        ## above it hold 1, 2, 3, 4.
+        Group_Columns = ['Stratum', 'Group', 'N', 'Median', 'Mean'
+                         , 'COD', 'PRD', 'Weighted Mean']
+
+        ## 5 rows: four value groups and a total.
+        self.GroupLevelStatistics = pd.DataFrame(index = range(5)
+                                                 , columns = Group_Columns
+                                                 , dtype = object)
+        self.GroupLevelStatistics_Text = pd.DataFrame(index = range(5)
+                                                      , columns = Group_Columns
+                                                      , dtype = object)
 
         Group_1_Mean_Sale_Ratio = 0
         Group_1_Median_Sale_Ratio = 0
@@ -2325,72 +2473,256 @@ def Build_ML_Regressors (pg_bar):
 
 ####### Creating Chat Agent to Review the Data #######
 
-is_retriable = lambda e: (isinstance(e, genai.errors.APIError) and e.code in {429, 503})
-
-if not hasattr(genai.models.Models.generate_content, '__wrapped__'):
-  genai.models.Models.generate_content = retry.Retry(predicate=is_retriable)(genai.models.Models.generate_content)
+## There used to be a hand-rolled retry wrapper monkey-patched onto the
+## model client here, so that HTTP 429 (rate limited) and 503 (busy) were
+## retried. The Anthropic SDK already does that - it retries connection
+## errors, 408, 409, 429 and 5xx twice with exponential backoff - so the
+## wrapper is gone. Set max_retries on the client to change it.
+##
+## It also ran at IMPORT time, which meant a broken language-model
+## dependency took down the entire valuation app, 2,200 lines away from
+## anything to do with chat.
   
-def list_tables() -> list[str]:
-    """Retrieve the names of all tables in the database."""
-    # Include print logging statements so you can see when functions are being called.
+## ⚠️ The docstrings below are not ordinary comments. The tool runner
+## builds each tool's schema from the function signature, and Claude picks
+## which tool to call by READING THE DESCRIPTION. A vague docstring here
+## shows up as a model that keeps choosing the wrong tool.
+@beta_tool
+def list_tables() -> str:
+    """List the tables available in the parcel database.
+
+    Returns:
+        One table name per line.
+    """
+    # These prints are deliberate: they go to the terminal you launched
+    # from, so you can watch which tools the model reaches for.
     print(' - DB CALL: list_tables()')
 
     cursor = st.session_state["Chat_Bot_Data_Base"].cursor()
-
-    # Fetch the table names.
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
 
-    tables = cursor.fetchall()
-    return [t[0] for t in tables]
+    return "\n".join(t[0] for t in cursor.fetchall())
 
   
-def describe_table(table_name: str) -> list[tuple[str, str]]:
-    """Look up the table schema.
+@beta_tool
+def describe_table(table_name: str) -> str:
+    """Look up the columns of one table and their types.
+
+    Args:
+        table_name: The name of the table to describe.
 
     Returns:
-      List of columns, where each entry is a tuple of (column, type).
+        One "column_name: type" line per column.
     """
     print(f' - DB CALL: describe_table({table_name})')
 
     cursor = st.session_state["Chat_Bot_Data_Base"].cursor()
-
     cursor.execute(f"PRAGMA table_info({table_name});")
 
-    schema = cursor.fetchall()
-    # [column index, column name, column type, ...]
-    return [(col[1], col[2]) for col in schema]
+    # PRAGMA table_info gives (index, name, type, ...) per column.
+    return "\n".join("%s: %s" % (col[1], col[2]) for col in cursor.fetchall())
 
-def execute_query(sql: str) -> list[list[str]]:
-    """Execute an SQL statement, returning the results."""
+@beta_tool
+def execute_query(sql: str) -> str:
+    """Run a read-only SQL SELECT query against the parcel database.
+
+    Args:
+        sql: A single SQL SELECT statement.
+
+    Returns:
+        The rows, one per line, or an error message explaining what went
+        wrong so the query can be corrected and retried.
+    """
     print(f' - DB CALL: execute_query({sql})')
 
-    cursor = st.session_state["Chat_Bot_Data_Base"].cursor()
+    # 🔒 This runs SQL that a language model wrote. The database connection
+    # is opened READ-ONLY (see Build_Chat_Bot_And_Data), which is what
+    # actually makes `DROP TABLE Parcel_Data` impossible rather than
+    # merely unlikely. Asking the model nicely is not a security control.
+    try:
+        cursor = st.session_state["Chat_Bot_Data_Base"].cursor()
+        cursor.execute(sql)
+        rows = cursor.fetchall()
+    except Exception as e:
+        # Hand the error back as a normal tool result rather than raising.
+        # The model can then read it, fix the query and try again - which
+        # is far better for the person waiting than a crashed app.
+        print(f' - DB CALL FAILED: {e}')
+        return f"That query failed: {e}. Check the column names with "\
+               f"describe_table and try again."
 
-    cursor.execute(sql)
-    return cursor.fetchall()
+    if not rows:
+        return "The query ran but matched no rows."
+
+    # Keep a lid on it: a county roll has hundreds of thousands of parcels,
+    # and a SELECT * would otherwise be sent to the model in full.
+    LIMIT = 200
+    body = "\n".join(str(list(r)) for r in rows[:LIMIT])
+    if len(rows) > LIMIT:
+        body += f"\n... {len(rows) - LIMIT:,} more rows not shown "\
+                f"(ask for a COUNT or an aggregate instead)."
+    return body
 
 
 
-def describe_Data(sql_query: str):
-    """   Given a SQL query that has a single column of a continuous variable, This will return the descriptive statistics for that variable"""
-    
-    df = pd.read_sql_query(sql_query, st.session_state["Chat_Bot_Data_Base"])
- 
-    #descriptive statistics on 'CenaUgoverEvro' and convert to dataframe
-    descriptive_stats = df.iloc[:,0].describe().to_string()
-    
-    return descriptive_stats
+@beta_tool
+def describe_Data(sql_query: str) -> str:
+    """Summarise one numeric column: count, mean, standard deviation,
+    minimum, quartiles and maximum.
 
-def query_plotter(sql_query: str ): 
-    """Given a SQL query that has a single column of a continuous variable, This function will create a plot"""
+    Args:
+        sql_query: A SQL SELECT returning exactly ONE numeric column,
+            for example "SELECT Model_Value FROM Parcel_Data".
 
-    df = pd.read_sql_query(sql_query, st.session_state["Chat_Bot_Data_Base"])
-    st_fig, st_ax = plt.subplots(figsize=(8, 6))
+    Returns:
+        The descriptive statistics as text.
+    """
+    print(f' - DB CALL: describe_Data({sql_query})')
+    try:
+        df = pd.read_sql_query(sql_query, st.session_state["Chat_Bot_Data_Base"])
+        return df.iloc[:, 0].describe().to_string()
+    except Exception as e:
+        return f"Could not summarise that: {e}. The query must return one "\
+               f"numeric column."
 
-    sns.histplot(df.iloc[:,0], kde=True , ax=st_ax)
-    ##plt.show()
+@beta_tool
+def query_plotter(sql_query: str) -> str:
+    """Draw a histogram of one numeric column and show it to the user.
+
+    Args:
+        sql_query: A SQL SELECT returning exactly ONE numeric column,
+            for example "SELECT Model_Value FROM Parcel_Data".
+
+    Returns:
+        Confirmation that the chart was drawn.
+    """
+    print(f' - DB CALL: query_plotter({sql_query})')
+    try:
+        df = pd.read_sql_query(sql_query, st.session_state["Chat_Bot_Data_Base"])
+        st_fig, st_ax = plt.subplots(figsize=(8, 6))
+        sns.histplot(df.iloc[:, 0], kde = True, ax = st_ax)
+    except Exception as e:
+        return f"Could not draw that: {e}. The query must return one "\
+               f"numeric column."
+
+    # The figure is stashed rather than drawn here, because this function
+    # runs inside the tool loop and Streamlit paints the page afterwards.
     st.session_state["Display_Plot"] = 1
     st.session_state["Chat_Bot_Plot"] = st_fig
+    return ("The histogram has been drawn and is shown below the answer. "
+            "Describe its shape for the user.")
+
+
+class NAL_Chat_Session:
+    """One conversation with Claude about your roll.
+
+    The API is **stateless**: there is no conversation living on a server
+    somewhere. Every turn sends the whole history back. This class is
+    simply the thing that holds that history, so the rest of the app can
+    call `.send_message("...")` and not think about it.
+
+    📌 Note what is kept and what is not. Each turn stores the question
+    and the final answer, but NOT the tool calls and the SQL rows that
+    produced it. That is deliberate: a `SELECT` against a county roll can
+    return a great deal of text, and carrying all of it forward would
+    make every later question slower and more expensive for no benefit.
+    The model still has its own answer to refer back to.
+    """
+
+    def __init__(self, client, model, system_instruction, tools):
+        self.client = client
+        self.model = model
+        self.system_instruction = system_instruction
+        self.tools = tools
+        self.messages = []
+        self.last_tool_calls = []
+
+    def send_message(self, question):
+        """Ask a question, let Claude use the tools, return the answer.
+
+        `tool_runner` drives the whole back-and-forth: it sends the
+        question, and when Claude asks for a tool it runs the matching
+        Python function, feeds the result back, and goes round again until
+        Claude has an answer. Each pass of the loop below is one of those
+        rounds, which is why we can report the tools that were used.
+        """
+        self.last_tool_calls = []
+
+        request = dict(
+            model = self.model,
+            max_tokens = 16000,
+            system = self.system_instruction,
+            tools = self.tools,
+            messages = self.messages + [{"role": "user", "content": question}],
+        )
+
+        ## 🩹 `effort` - how hard Claude works before answering - is only
+        ## sent to the models we have actually checked. Not every model
+        ## accepts it, and one that does not returns
+        ##
+        ##     400 - This model does not support the effort parameter.
+        ##
+        ## on EVERY request, which turns the whole chat into an error
+        ## message. That really happened: a leftover ANTHROPIC_MODEL value
+        ## copied from another project named an older model, and nothing
+        ## worked until this check existed. A reader is free to put any
+        ## model in .env, so this cannot be an assumption.
+        if self.model in VERIFIED_CHAT_MODELS:
+            request["output_config"] = {"effort": "medium"}
+
+        ## Errors are returned as sentences, not raised. A county laptop
+        ## may sit behind a proxy, a key may be mistyped, and a rate limit
+        ## is routine - none of those should look like a crashed app to
+        ## somebody trying this for the first time.
+        try:
+            runner = self.client.beta.messages.tool_runner(**request)
+
+            final_message = None
+            for message in runner:
+                final_message = message
+                for block in message.content:
+                    if block.type == "tool_use":
+                        self.last_tool_calls.append(block.name)
+
+        except anthropic.AuthenticationError:
+            return ("That API key was rejected. Check ANTHROPIC_API_KEY in "
+                    "your .env file, or paste a key into the box above.")
+        except anthropic.NotFoundError:
+            return (f"The model '{self.model}' was not found on your account. "
+                    f"Pick one from the dropdown.")
+        except anthropic.RateLimitError:
+            return ("The API is rate limiting us. Wait a moment and ask "
+                    "again - nothing is broken.")
+        except anthropic.BadRequestError as e:
+            return (f"The API rejected that request: {e}. If you changed "
+                    f"ANTHROPIC_MODEL in your .env file, try one of the "
+                    f"models in the dropdown instead.")
+        except anthropic.APIConnectionError:
+            return ("Could not reach the API. Check your internet "
+                    "connection, and whether your network needs a proxy.")
+        except anthropic.APIStatusError as e:
+            return f"The API returned an error: {e}"
+
+        if final_message is None:
+            return "I did not get a reply from the model. Please try again."
+
+        ## A safety classifier can decline a request outright. It is not an
+        ## error and there is no exception to catch - the response simply
+        ## comes back with stop_reason 'refusal' and no text.
+        if final_message.stop_reason == "refusal":
+            return ("The model declined to answer that one. Try rephrasing "
+                    "the question around the roll data.")
+
+        answer = "".join(
+            block.text for block in final_message.content if block.type == "text"
+        ).strip()
+
+        if not answer:
+            answer = "I could not find an answer to that in your data."
+
+        self.messages.append({"role": "user", "content": question})
+        self.messages.append({"role": "assistant", "content": answer})
+        return answer
 
 
 def Build_Chat_Bot_And_Data():
@@ -2441,48 +2773,76 @@ def Build_Chat_Bot_And_Data():
     
     Parcel_Data['Model_Value'] = round(Parcel_Data['Model_Value'],0).astype('Int64')
 
-    Parcel_Data.to_csv("C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\Chat_Bot_Data.csv"
-                
-                       , index = False)
+    ## There used to be a `Parcel_Data.to_csv(...)` here, writing every
+    ## parcel to a hardcoded folder. Nothing ever read it back, and the
+    ## app already offers proper download buttons further up, so it was a
+    ## copy of real people's property records left on disk for no reason.
+    ## It is gone. (CLAUDE.md: public does not mean careless.)
 
+    ## ── Build the little database the assistant will query ──────────────
+    APP_WORKSPACE.mkdir(parents = True, exist_ok = True)
+    local_db_file = APP_WORKSPACE / "NAL_Navigator.db"
 
-    ## Creating Local Database from the data Created by the model 
-    local_db_file = "C:\\Users\\tajor\\OneDrive\\Documents\\Python Applications\\Contracting\\NAL Project\\Data\\NAL_Navigator.db"
+    ## Write it with an ordinary read-write connection, then CLOSE that
+    ## connection. Nothing after this point needs to write.
+    builder_connection = sqlite3.connect(local_db_file)
+    Parcel_Data.to_sql('Parcel_Data', builder_connection, if_exists = 'replace')
+    builder_connection.commit()
+    builder_connection.close()
 
-    # if os.path.exists(local_db_file):
-    #     os.remove(local_db_file)
-    #     print("Old Database Removed")
-    # else: 
-    #     print("No Old Database Found")
-
-    st.session_state["Chat_Bot_Data_Base"] = sqlite3.connect(local_db_file
-                                                            , check_same_thread = False)
-
-    Parcel_Data.to_sql('Parcel_Data', st.session_state["Chat_Bot_Data_Base"], if_exists='replace')
+    ## 🔒 Now reopen it READ-ONLY for the conversation.
+    ##
+    ## The `execute_query` tool runs SQL written by a language model. Any
+    ## instruction we put in the system prompt is a request, not a
+    ## control - and the people most likely to type something strange into
+    ## the chat box are the ones exploring it for the first time.
+    ##
+    ## `mode=ro` moves that from unlikely to impossible: SQLite itself
+    ## refuses the write, so DROP TABLE, DELETE and UPDATE all fail no
+    ## matter what the model asks for. `uri=True` is required for the
+    ## file:...?mode=ro form to be read as a URI rather than a filename.
+    st.session_state["Chat_Bot_Data_Base"] = sqlite3.connect(
+        f"file:{local_db_file.as_posix()}?mode=ro"
+        , uri = True
+        ## Streamlit runs the script on its own thread, so the connection
+        ## is used from a different thread than the one that opened it.
+        , check_same_thread = False
+    )
+    print(f' - Chat database ready (read-only) at {local_db_file}')
 
     ## Setting up google API key 
 
-    GOOGLE_API_KEY = st.session_state["Google_Key"]
+    ## The key comes from .env, and a key typed into the box overrides it.
+    ANTHROPIC_API_KEY = st.session_state["Anthropic_Key"]
 
-    if  (st.session_state["Provided_Google_Key"] is not None) & (len(st.session_state['Provided_Google_Key'])  > 12  ) :
-        GOOGLE_API_KEY = st.session_state["Provided_Google_Key"]
+    typed_key = (st.session_state["Provided_Anthropic_Key"] or "").strip()
+    if len(typed_key) > 12:
+        ANTHROPIC_API_KEY = typed_key
 
     ## 🔒 NEVER print the key itself. An earlier version did, which wrote a
     ## live credential to the terminal every time the chatbot started.
     ## To check a key arrived, report only its SHAPE:
-    if GOOGLE_API_KEY:
-        print(f'API key loaded: yes ({len(str(GOOGLE_API_KEY))} characters)')
+    if ANTHROPIC_API_KEY:
+        print(f'API key loaded: yes ({len(str(ANTHROPIC_API_KEY))} characters)')
     else:
         print('API key loaded: NO - none provided')
 
-    client = genai.Client(api_key=GOOGLE_API_KEY)
+    client = anthropic.Anthropic(api_key = ANTHROPIC_API_KEY)
 
-    Model_Name = "gemini-2.0-flash"
+    ## Whatever was picked in the dropdown, falling back to the default.
+    Model_Name = CHAT_MODELS.get(
+        st.session_state['Chat_Model_Selected'], DEFAULT_CHAT_MODEL
+    )
+    print(f'Chat model: {Model_Name}')
 
     db_tools = [list_tables, describe_table, execute_query,describe_Data,query_plotter ]
 
-    ## snarky
-    instruction2 = """You are a helpful chatbot that can interact with a SQL database containing property data. You will take the users questions and turn them into SQL
+    ## Two earlier drafts of this system prompt used to sit here
+    ## (`instruction2` and `instruction_Original`). Neither was ever
+    ## used - the `instruction` below overwrote both - so they were three
+    ## near-identical prompts where only one could matter, which is how a
+    ## prompt gets edited in the copy that is not running.
+    _unused_draft_prompt = """You are a helpful chatbot that can interact with a SQL database containing property data. You will take the users questions and turn them into SQL
     queries using the tools available. Once you have the information you need, you will
     answer the user's question using the data returned.
 
@@ -2579,16 +2939,13 @@ def Build_Chat_Bot_And_Data():
     If you do not know the answer, you can say "I don't know"
     """
 
-    client = genai.Client(api_key = GOOGLE_API_KEY)
-
-    # Start a chat with automatic function calling enabled.
-    chat = client.chats.create(
-                                    model = Model_Name,
-                                    config = types.GenerateContentConfig(
-                                                                            system_instruction = instruction,
-                                                                            tools = db_tools,
-                                                                        ),
-                                )
+    ## One conversation, holding its own history. See NAL_Chat_Session.
+    chat = NAL_Chat_Session(
+        client = client,
+        model = Model_Name,
+        system_instruction = instruction,
+        tools = db_tools,
+    )
     greeting_text = "Hi there! I am a custom LLM that is here to better help you understand your NAL data. Please feel free to ask me any appraisal questions, a great first question would be 'What columns are in the database?' this way I can let you know exactly what data I have access too!"
     with st.chat_message("assistant"):
         st.write(greeting_text)
@@ -2603,21 +2960,26 @@ def Clear_Chat_History():
     st.session_state["Chat_History"] = []    
 
 def response_generator( question ):
+    """Ask the question and hand the answer to Streamlit.
+
+    This used to yield one word at a time with `time.sleep(0.05)` between
+    them, to imitate typing. On a 200-word answer that is **ten seconds**
+    of deliberate waiting added to a reply that had already arrived. The
+    time this app actually spends is in the tool calls - querying the
+    roll - and Streamlit shows its own running indicator for that.
+    """
     st.session_state["Display_Plot"] = 0
     st.session_state["Display_Chart"] = 0
-    response = st.session_state["NAL_Chat_Bot"].send_message(question)
-    #response =  "Hi, human! Is there anything I can help you with?"
 
     print('The submitted question is:', question)
 
+    answer = st.session_state["NAL_Chat_Bot"].send_message(question)
 
-    
-    for word in response.text.split(" "):
-        yield word + " "
-        time.sleep(0.05)
+    tools_used = st.session_state["NAL_Chat_Bot"].last_tool_calls
+    if tools_used:
+        print(' - tools used this turn:', ', '.join(tools_used))
 
-def Query_Check (): 
-    print(str(execute_query('SELECT count(*) FROM Parcel_Data')))
+    yield answer
     
 
 ######## APP Layout And Buttons ########
@@ -2660,10 +3022,18 @@ else:
     st.sidebar.markdown('##')
 
 
+    ## No `value =` here on purpose. The starting value lives in
+    ## st.session_state['Valuation_Year'] further up this file, and passing
+    ## BOTH a default and a session-state entry makes Streamlit warn:
+    ##
+    ##     The widget with key "Valuation_Year" was created with a default
+    ##     value but also had its value set via the Session State API.
+    ##
+    ## Only one of the two can win, and which one is not obvious from
+    ## reading the code - so we keep the single source of truth.
     st.sidebar.number_input("Valuation Year"
-                            , value = 2025
-                            ,key = 'Valuation_Year'
-                            , on_change= Update_County_List_Loc
+                            , key = 'Valuation_Year'
+                            , on_change = Update_County_List_Loc
                             , step = 1)
     st.session_state['County_Selected'] = st.sidebar.selectbox("Select Your County"
                                                             , list(st.session_state['County_List_Loc'] .keys())
@@ -3796,18 +4166,24 @@ else:
                     ch_col1, ch_col2  = st.columns(2)
 
                     with ch_col1:
-                        st.selectbox('Pick A Chat Model '
-                                    , ['gemini-1.5-flash','gemini-2.0-flash','gemini-2.0-flash-Lite', 'gemini-2.5-flash']
-                                    ,placeholder = 'Models Avaialable' 
+                        ## No `index =` here on purpose - the starting value
+                        ## comes from session state, which is seeded further
+                        ## up. Passing both means the widget's own default is
+                        ## ignored, silently.
+                        st.selectbox('Pick a chat model'
+                                    , list(CHAT_MODELS.keys())
                                     , key = 'Chat_Model_Selected'
                                     , on_change = set_chatmodel)
                         #st.write(f"You selected: {st.session_state['Chat_Model_Selected']}")
                     
                     with ch_col2:
-                        st.text_input('Enter Google AI Studio API Key'
-                                    , key = 'Provided_Google_Key'
-                                    , placeholder = 'Not Required for Most Models'
-                                    ,label_visibility="hidden"
+                        ## Left blank, the key from .env is used. The label is
+                        ## visible now - it used to be hidden, which left an
+                        ## unexplained text box next to the model picker.
+                        st.text_input('Anthropic API key'
+                                    , key = 'Provided_Anthropic_Key'
+                                    , type = 'password'
+                                    , placeholder = 'Leave blank to use your .env file'
                                     , on_change = set_User_API_key)
                         
 
@@ -3818,7 +4194,15 @@ else:
                     Build_Chat_Bot_Button = st.button('Start Chat!')
 
                     if Build_Chat_Bot_Button:
-                        if st.session_state["Provided_Google_Key"] is not None:
+                        ## 🩹 This check used to read
+                        ##     if st.session_state["Provided_Google_Key"] is not None
+                        ## which was never False: a `st.text_input` with a key
+                        ## sets its session-state entry to the empty string, not
+                        ## None. So the warning below was unreachable and the app
+                        ## went ahead with no key at all.
+                        _typed_key = (st.session_state["Provided_Anthropic_Key"] or "").strip()
+                        _env_key = st.session_state["Anthropic_Key"]
+                        if _typed_key or _env_key:
                             with st.spinner("Hold on Tight walking up the Chat Bot!"):
                                 response_container_Chat = st.empty()                                    
                                 with response_container_Chat.container():
@@ -3832,16 +4216,17 @@ else:
                                     Build_Chat_Bot_And_Data()
                                     response_container_Chat.empty()
                         else:
-                            st.warning('Please Enter a Google AI Studio API Key')
+                            st.warning(
+                                'No Anthropic API key found. Put ANTHROPIC_API_KEY '
+                                'in your .env file (see .env.example), or paste a '
+                                'key into the box above.'
+                            )
 
                 if st.session_state["Chat_Launched"] != None: 
                  
 
                     st.button('Clear Chat History'
                               , on_click = Clear_Chat_History)
-                    
-                    # st.button('Checking Query '
-                    #           , on_click = Query_Check)
                     
                     st.markdown('#####')
                     st.markdown('#####')

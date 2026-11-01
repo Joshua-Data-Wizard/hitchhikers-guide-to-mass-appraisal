@@ -118,6 +118,11 @@ optuna*.db
 catboost_info/
 mlruns/
 .cache/
+
+# The app writes its own working files here - the small SQLite database the
+# chat assistant queries, rebuilt every time you press Start Chat. Safe to
+# delete; nothing in it cannot be regenerated.
+app_workspace/
 hf_cache/
 models/
 
