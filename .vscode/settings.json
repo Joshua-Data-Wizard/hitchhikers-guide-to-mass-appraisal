@@ -47,7 +47,22 @@
   "files.exclude": {
     "**/__pycache__": true,
     "**/.ipynb_checkpoints": true
-  },
-  "python-envs.defaultEnvManager": "ms-python.python:system",
-  "python-envs.pythonProjects": []
+  }
+  // ── Do NOT pin the Python Environments extension to the "system" manager ──
+  //
+  // These two lines used to read:
+  //
+  //     "python-envs.defaultEnvManager": "ms-python.python:system",
+  //     "python-envs.pythonProjects": []
+  //
+  // They were inherited from a sibling project, and they break this one.
+  // There is no system Python here on purpose - uv installs and manages the
+  // interpreter. Pinning the extension to a system manager that finds nothing
+  // made VS Code report every single dependency as "not installed", which is
+  // alarming and completely wrong: `uv sync` installs all 205 of them into
+  // .venv/.
+  //
+  // With these removed, the extension auto-discovers the .venv/ in the
+  // workspace root, which is what `python.defaultInterpreterPath` above
+  // already points at.
 }

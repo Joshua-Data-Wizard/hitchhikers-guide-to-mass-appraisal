@@ -60,8 +60,12 @@ checksums. **Nothing is downloaded**; it is all already in your clone.
 
 ### Optional — run a small language model locally
 
-The notebook's bonus section and one version of the app can run a language model
-on your own machine, with **no data leaving the building**:
+**You do not need this for the walkthrough.** The notebook is entirely about
+valuation and uses no language models at all.
+
+This extra is only for one version of the app's chatbot, which can run a small
+language model on your own machine with **no data leaving the building** — often
+the only version an assessor's office is permitted to use:
 
 ```bash
 uv sync --extra slm      # adds PyTorch w/ CUDA 13 (~3 GB) + transformers
@@ -79,8 +83,8 @@ this repository — is a CPU job and needs none of it.
 ## 📂 What's in here
 
 ```
-notebooks/   the walkthrough — committed with its outputs, so you can read it
-             on GitHub without running anything
+notebooks/   the walkthrough — 254 cells, committed with its outputs, so you
+             can read the whole thing on GitHub without running anything
 app/         a Streamlit app: load a Florida county tax roll, generate
              benchmark values, and ask questions about the results
 data/        the Lee County roll, compressed. See data/README.md
@@ -125,7 +129,9 @@ The walkthrough goes the whole way, including the parts that usually get skipped
   equalization has never asked anyone for an R²
 - **SHAP**, to turn "the computer said $412,000" into a line-item receipt, and
   to pull a depreciation curve straight out of the model
-- A bonus section on language models for an appraisal office
+- An honest closing section on **what this model can't tell you** — one year of
+  unvetted sales, a thin feature set, and why some of the SHAP curves look odd
+  because of it
 
 ---
 

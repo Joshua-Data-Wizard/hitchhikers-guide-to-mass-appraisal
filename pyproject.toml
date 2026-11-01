@@ -170,11 +170,15 @@ dependencies = [
 #  of it. Making every reader download 3 GB before they can run the first
 #  cell is the opposite of "clone it and get it running."
 #
+#  ⚠️ NOTHING IN THE NOTEBOOK NEEDS THIS. The notebook is entirely about
+#  valuation and imports no language-model libraries at all. This extra
+#  exists solely for the APP's local-model chatbot variant, which runs a
+#  small language model on your own machine with no data leaving the
+#  building — for an assessor's office, often the only version that is
+#  permitted at all.
+#
 #  So `uv sync` on its own gives you the entire valuation walkthrough plus
-#  the hosted-API chatbot. This extra adds the bonus section: running a
-#  small language model on your own machine, with no data leaving the
-#  building — which for an assessor's office is often the only version that
-#  is allowed at all.
+#  the hosted-API chatbot, and most readers never need this extra.
 # ─────────────────────────────────────────────────────────────────────────
 [project.optional-dependencies]
 slm = [

@@ -31,9 +31,16 @@ from pyproj import CRS, Transformer
 
 ## System 
 import os
+#
+# Read a .env file if one is present, so secrets and settings live in a
+# gitignored file instead of in this source code. See .env.example.
+# Nothing breaks if there is no .env - every lookup below has a default.
+from dotenv import load_dotenv
+load_dotenv()
 import psutil
 import time
-import keyboard
+## The `keyboard` package was removed from this import block and must not
+## come back. The shutdown button near the bottom of this file explains why.
 
 # Stats
 import statistics
@@ -177,8 +184,9 @@ if "Stratum6GroupLevelStatistics_Report" not in st.session_state:
 
 
 if "PSWRD_Entry" not in st.session_state:
-    #st.session_state['PSWRD_Entry'] = None
-    st.session_state['PSWRD_Entry'] = 'Cow' ## Testing Only
+    ## Starts empty. Whether a login is ever ASKED for depends on
+    ## User_Password_List further down - see the note there.
+    st.session_state['PSWRD_Entry'] = None
 
 if "User_Name_Entry" not in st.session_state:
     st.session_state['User_Name_Entry'] = None  
@@ -485,7 +493,27 @@ Result_Prescision = 4
 
 
 
-User_Password_List = [['Lucky_Luke','N@L']]
+## ── The optional login gate ──────────────────────────────────────────────
+##
+## There is NO login screen unless you set BOTH of these in your .env:
+##
+##     HGMA_APP_USER=some_name
+##     HGMA_APP_PASSWORD=some_password
+##
+## Leave them unset - the default - and the app opens straight to the data.
+##
+## 🔒 Credentials are never written in this file. This repository is public,
+## and a password committed to a public repo is not a password, it is a
+## published fact. An earlier version of this app shipped a real-looking
+## username and password on this exact line.
+##
+## And to be clear about what this is: a courtesy screen for a shared demo
+## laptop, NOT security. The app reads public taxroll data and serves it on
+## localhost. Do not put anything behind it that would matter if seen.
+_app_user = os.environ.get('HGMA_APP_USER')
+_app_password = os.environ.get('HGMA_APP_PASSWORD')
+
+User_Password_List = [[_app_user, _app_password]] if (_app_user and _app_password) else []
 
 NAL_Features = ['MKT_AR','NBRHD_CD','CENSUS_BK','IMP_QUAL','DOR_UC','ACT_YR_BLT','EFF_YR_BLT','LND_SQFOOT','TOT_LVG_AREA' , 'Age_Diff' , 'Act_Age', 'Eff_Age','JV']
 
@@ -585,7 +613,12 @@ def set_chatmodel():
     print(st.session_state["Chat_Model_Selected"])
 
 def set_User_API_key():
-    print(st.session_state["Provided_Google_Key"])
+    ## This exists because Streamlit wants an on_change callback for the
+    ## API-key text box, and there is nothing safe to DO here.
+    ##
+    ## 🔒 It used to print the key. Never log a secret - not to a terminal,
+    ## not "just while debugging". Console history outlives the debugging.
+    pass
 
 
 def update_COS_Input():
@@ -2434,7 +2467,13 @@ def Build_Chat_Bot_And_Data():
     if  (st.session_state["Provided_Google_Key"] is not None) & (len(st.session_state['Provided_Google_Key'])  > 12  ) :
         GOOGLE_API_KEY = st.session_state["Provided_Google_Key"]
 
-    print('The Google API Key is: ' + str(GOOGLE_API_KEY))
+    ## 🔒 NEVER print the key itself. An earlier version did, which wrote a
+    ## live credential to the terminal every time the chatbot started.
+    ## To check a key arrived, report only its SHAPE:
+    if GOOGLE_API_KEY:
+        print(f'API key loaded: yes ({len(str(GOOGLE_API_KEY))} characters)')
+    else:
+        print('API key loaded: NO - none provided')
 
     client = genai.Client(api_key=GOOGLE_API_KEY)
 
@@ -2588,7 +2627,10 @@ def Query_Check ():
 st.title("NAL :red[Navigator]" , anchor= "right")
 
 
-if (st.session_state["PSWRD_Entry"] is None) &   (st.session_state["User_Name_Entry"] is None ):
+## Show the login screen only if a credential was actually configured.
+## With HGMA_APP_USER / HGMA_APP_PASSWORD unset, User_Password_List is empty
+## and this is False, so the app opens straight to the data.
+if User_Password_List and (st.session_state["PSWRD_Entry"] is None) and (st.session_state["User_Name_Entry"] is None):
     st.markdown('##')
     st.markdown('## Password :red[Entry]')
     st.write("---")
@@ -3839,11 +3881,19 @@ else:
 
 
     if exit_app:
-        # Give a bit of delay for user experience
-        #time.sleep(1)
-        # Close streamlit browser tab
-        keyboard.press_and_release('ctrl+w')
-        # Terminate streamlit python process
+        ## Stop the Streamlit server.
+        ##
+        ## This button used to synthesize a Ctrl+W keystroke to close the
+        ## browser tab as well, using a package called `keyboard`. That
+        ## package has been unmaintained since March 2020, it installs a
+        ## GLOBAL low-level keyboard hook that often needs administrator
+        ## rights on Windows, and it sends the keystroke to whichever window
+        ## currently has focus, which is not necessarily your browser.
+        ##
+        ## We are asking county IT departments to approve this repository,
+        ## and a dependency shaped like a keylogger fails that review for
+        ## good reasons. So we stop the server and let you close the tab.
+        st.info('Deep Thought is shutting down. You can close this tab now.')
         pid = os.getpid()
         p = psutil.Process(pid)
         p.terminate()
