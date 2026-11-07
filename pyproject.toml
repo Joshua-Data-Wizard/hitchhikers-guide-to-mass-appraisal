@@ -191,9 +191,11 @@ dependencies = [
 #  of it. Making every reader download 3 GB before they can run the first
 #  cell is the opposite of "clone it and get it running."
 #
-#  ⚠️ NOTHING IN THE NOTEBOOK NEEDS THIS. The notebook is entirely about
-#  valuation and imports no language-model libraries at all. This extra
-#  exists solely for the APP's local-model chatbot variant, which runs a
+#  ⚠️ THE NOTEBOOK DOES NOT NEED THIS. It is entirely about valuation and
+#  imports no language-model libraries itself. 🩹 One Optuna chart needs
+#  torch behind the scenes, so that cell checks first and skips itself on a
+#  plain `uv sync`. Found by running the notebook on a fresh clone.
+#  This extra exists for the APP's local-model chatbot variant, which runs a
 #  small language model on your own machine with no data leaving the
 #  building — for an assessor's office, often the only version that is
 #  permitted at all.
@@ -207,11 +209,7 @@ slm = [
     # Linux; macOS gets the ordinary PyPI build, which uses Metal.
     "torch>=2.14",
 
-    # ⚠️ transformers 5.x is a major version. The notebook's bonus section
-    # uses `pipeline`, `AutoTokenizer` and
-    # `AutoModelForSequenceClassification`, all of which should survive —
-    # but `facebook/bart-large-mnli` and the Qwen models need a load test
-    # before we trust the committed outputs.
+    # Loads and runs the local model in the app's chat tab.
     "transformers>=5.0",
 
     # Device placement and low-memory loading. Without this, a 4B model

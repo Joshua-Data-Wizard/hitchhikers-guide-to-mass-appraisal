@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 200" role="img" aria-labelledby="title">
+  <title id="title">DON'T PANIC, in large friendly letters</title>
+  <rect x="4" y="4" width="712" height="192" rx="26" fill="#1f2a44"/>
+  <rect x="14" y="14" width="692" height="172" rx="18" fill="none" stroke="#ffcf5c" stroke-width="3"/>
+  <text x="360" y="104" text-anchor="middle" font-family="'Trebuchet MS', 'Segoe UI', Verdana, Arial, sans-serif" font-size="82" font-weight="700" letter-spacing="3" fill="#ffcf5c">DON'T PANIC</text>
+  <text x="360" y="152" text-anchor="middle" font-family="'Segoe UI', Verdana, Arial, sans-serif" font-size="22" fill="#dfe6f3">a guide to machine learning for mass appraisal</text>
+</svg>

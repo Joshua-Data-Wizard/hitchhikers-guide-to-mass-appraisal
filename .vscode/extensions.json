@@ -4,6 +4,6 @@
 {
   "recommendations": [
     "ms-python.python",   // interpreter discovery — makes settings.json work
-    "ms-toolsai.jupyter"  // runs the .ipynb notebooks in demos 1-8
+    "ms-toolsai.jupyter"  // runs the notebook
   ]
 }

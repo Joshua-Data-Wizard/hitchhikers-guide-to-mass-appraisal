@@ -1,6 +1,19 @@
 [server]
 maxUploadSize = 500
 
+## Listen on this computer only. By default Streamlit listens on the whole network, so unless
+## a firewall stops them, others in the office could open this app by its address: the roll,
+## the Shut Down button, and the chat with whatever API key it has loaded. Measured from this
+## computer: its network address answered with the default, and refused with this line. An
+## office that wants to share one copy can
+## choose that on purpose, with `--server.address 0.0.0.0` on the run command.
+address = "localhost"
+
+## The first time anyone runs Streamlit it stops in the terminal and asks for an email
+## address, for "onboarding emails, news, offers, promotions". That is the very first
+## thing a new reader would meet, and on a county laptop it invites a work address.
+showEmailPrompt = false
+
 ## ⚠️ Turn Streamlit's file watcher OFF.
 ##
 ## By default Streamlit walks every imported module looking for changes so
@@ -19,3 +32,8 @@ fileWatcherType = "none"
 ## should not be phoning anywhere it does not need to.
 [browser]
 gatherUsageStats = false
+
+## Hides Streamlit's "Deploy" button, which invites publishing the app to the internet.
+## This app holds a tax roll, and nothing about using it needs that button in view.
+[client]
+toolbarMode = "minimal"

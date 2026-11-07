@@ -4678,7 +4678,7 @@ else:
 
         ##Loading NAL File
 
-        NAL_Files = st.file_uploader("## Upload NAL file"
+        NAL_Files = st.file_uploader("Upload NAL file"
                                     , type=["csv"]) 
     
     
@@ -4692,7 +4692,7 @@ else:
             st.markdown(""":green[ Your NAL loaded successfully! There are """ + str(st.session_state["NAL"].shape[0]) + """ rows of data in your NAL File ]""")
 
         st.markdown('#####')
-        SDF_Files = st.file_uploader("## Upload SDF file"
+        SDF_Files = st.file_uploader("Upload SDF file"
                                     , type=["csv"]) 
 
         if SDF_Files is not None:
@@ -5026,9 +5026,24 @@ else:
 
                 build_model_button = st.form_submit_button("Build Model")
 
-                if build_model_button:
+                ## 🩹 Pressing this with nothing ticked used to divide by zero
+                ## and show a raw traceback, because number_of_models is 0. That
+                ## is an easy first click for somebody new, so say what to do.
+                nothing_to_build = not any(
+                    st.session_state[_model_flag]
+                    for _model_flag in ("SFR_model_binary"
+                                        , "Vac_Res_model_binary"
+                                        , "Condo_model_binary"
+                                        , "Commercial_model_binary")
+                )
 
-                    response_container = st.empty()                                    
+                if build_model_button and nothing_to_build:
+                    st.warning("Tick at least one kind of property above, then "
+                               "press **Build Model** again.")
+
+                if build_model_button and not nothing_to_build:
+
+                    response_container = st.empty()
                     with response_container.container():
                         progress_bar_cols = st.columns([2,5,2])                                
                         with progress_bar_cols[1]:                                                                            
@@ -5105,8 +5120,8 @@ else:
                 sfr_m_left , sfr_m_middle, sfr_m_right = st.columns([.5 , .25 , .25])
 
                 sfr_m_left.markdown("**Model Metric**")
-                sfr_m_middle.markdown("**Training Pefrormance**")
-                sfr_m_right.markdown("**Test Pefrormance**")
+                sfr_m_middle.markdown("**Training Performance**")
+                sfr_m_right.markdown("**Test Performance**")
                 sfr_m_left.markdown('')
                 sfr_m_middle.markdown('')
                 sfr_m_right.markdown('')
@@ -5197,7 +5212,7 @@ else:
                     )
 
                     graph_metric = st.radio(
-                                            "## Model Metric:"
+                                            "Model Metric:"
                                             ,['R squared' , 'Weighted Mean Sale Ratio' , 'COD' , 'PRD' , 'Mean Absolute Error']
                                             , horizontal = True
                                             , index = 0
@@ -5240,7 +5255,7 @@ else:
 
                     
                                 , height = 200
-                                , width= 150
+                                , width= 600
                                 )
 
                     
@@ -5277,8 +5292,8 @@ else:
                 Condo_m_left , Condo_m_middle, Condo_m_right = st.columns([.5 , .25 , .25])
 
                 Condo_m_left.markdown("**Model Metric**")
-                Condo_m_middle.markdown("**Training Pefrormance**")
-                Condo_m_right.markdown("**Test Pefrormance**")
+                Condo_m_middle.markdown("**Training Performance**")
+                Condo_m_right.markdown("**Test Performance**")
                 Condo_m_left.markdown('')
                 Condo_m_middle.markdown('')
                 Condo_m_right.markdown('')
@@ -5365,7 +5380,7 @@ else:
                     )
 
                     graph_metric_con = st.radio(
-                                            "## Model Metric:"
+                                            "Model Metric:"
                                             ,['R squared ' , 'Weighted Mean Sale Ratio ' , 'COD ' , 'PRD ' , 'Mean Absolute Error ']
                                             , horizontal = True
                                             , index = 0
@@ -5408,7 +5423,7 @@ else:
 
                     
                                 , height = 200
-                                , width= 150
+                                , width= 600
                                 )
 
 
@@ -5446,8 +5461,8 @@ else:
                 VR_m_left , VR_m_middle, VR_m_right = st.columns([.5 , .25 , .25])
 
                 VR_m_left.markdown("**Model Metric**")
-                VR_m_middle.markdown("**Training Pefrormance**")
-                VR_m_right.markdown("**Test Pefrormance**")
+                VR_m_middle.markdown("**Training Performance**")
+                VR_m_right.markdown("**Test Performance**")
                 VR_m_left.markdown('')
                 VR_m_middle.markdown('')
                 VR_m_right.markdown('')
@@ -5533,7 +5548,7 @@ else:
                     )
 
                     graph_metric_VR = st.radio(
-                                            "## Model Metric:"
+                                            "Model Metric:"
                                             ,['R squared  ' , 'Weighted Mean Sale Ratio  ' , 'COD  ' , 'PRD  ' , 'Mean Absolute Error  ']
                                             , horizontal = True
                                             , index = 0
@@ -5576,7 +5591,7 @@ else:
 
                     
                                 , height = 200
-                                , width= 150
+                                , width= 600
                                 )
 
 
@@ -5613,8 +5628,8 @@ else:
                 Com_m_left , Com_m_middle, Com_m_right = st.columns([.5 , .25 , .25])
 
                 Com_m_left.markdown("**Model Metric**")
-                Com_m_middle.markdown("**Training Pefrormance**")
-                Com_m_right.markdown("**Test Pefrormance**")
+                Com_m_middle.markdown("**Training Performance**")
+                Com_m_right.markdown("**Test Performance**")
                 Com_m_left.markdown('')
                 Com_m_middle.markdown('')
                 Com_m_right.markdown('')
@@ -5701,7 +5716,7 @@ else:
                     )
 
                     graph_metric_COM = st.radio(
-                                            "## Model Metric:"
+                                            "Model Metric:"
                                             ,['R squared   ' , 'Weighted Mean Sale Ratio   ' , 'COD   ' , 'PRD   ' , 'Mean Absolute Error   ']
                                             , horizontal = True
                                             , index = 0
@@ -5744,7 +5759,7 @@ else:
 
                     
                                 , height = 200
-                                , width= 150
+                                , width= 600
                                 )
 
 
