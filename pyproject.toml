@@ -50,7 +50,7 @@ dependencies = [
     # and builds its `kfold` column with `.loc[subset, 'kfold'] = fold`, so
     # both changes touch it. We are deliberately on 3.x and testing it
     # rather than pinning back on a guess — if something breaks, this floor
-    # becomes `>=2.2,<3` and the reason gets recorded in FINDINGS.
+    # becomes `>=2.2,<3` and the reason gets written here.
     "pandas>=2.2",
     "numpy>=2.1",
 

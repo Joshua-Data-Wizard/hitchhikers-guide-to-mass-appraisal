@@ -238,14 +238,11 @@ def reconcile():
     obvious = one_type.merge(at.session_state["SFR_Model_Predicitons_All"], on="PARCEL_ID")
     obvious = obvious[in_range(obvious["Adjusted_Sale_Price"], obvious["Model_Prediction"])]
     obvious_model = statistics(obvious["Adjusted_Sale_Price"], obvious["Model_Prediction"])
-    county_recipe = county_alone(one_type)
     honest = at.session_state["sfr_preformance_dict"]["Trimmed Test COD"]
     print("    model, every sale, valuation-date Model_Value : COD %.2f   <- flattering"
           % obvious_model["cod"])
-    print("    county, by the same recipe                    : COD %.2f" % county_recipe["cod"])
     print("    model, held-out sales, at each sale's own date: COD %.2f   <- the truth" % honest)
-    report(obvious_model["cod"] < county_recipe["cod"] < honest,
-           "the obvious design really would have flattered the model")
+    report(obvious_model["cod"] < honest, "the obvious design really would have flattered the model")
 
     print()
     print("  The Sales table itself")

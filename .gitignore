@@ -31,7 +31,7 @@ dist/
 
 
 # ── Jupyter ──────────────────────────────────────────────────────────────
-# Notebooks ARE committed with their outputs on purpose (CLAUDE.md §2), so a
+# Notebooks ARE committed with their outputs on purpose, so a
 # reader browsing GitHub can see what happens without running anything.
 # Only the checkpoint sidecars are ignored.
 .ipynb_checkpoints/

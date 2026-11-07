@@ -24,6 +24,9 @@ published annually through the Florida Department of Revenue, and county
 parcel geometry is published by the property appraiser's office. Permission
 was sought anyway, because asking is the right way to do this.
 
+The MIT license on this repository covers its code and writing. It does not cover these records,
+which are not ours to license.
+
 ### ⚠️ Public does not mean careless
 
 These records describe **real people's homes**. If you fork this, build on it,

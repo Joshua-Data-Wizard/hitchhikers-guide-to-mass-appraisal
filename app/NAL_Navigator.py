@@ -458,7 +458,7 @@ if "COS_ADJ_KEY" not in st.session_state:
 ## Worse if that print had not been there: the next line would have
 ## written None in as a dictionary key, and the adjustment would have been
 ## silently discarded, because every lookup uses str(row['DOR_UC']).
-## A crash was the lucky outcome. FINDINGS 32.
+## A crash was the lucky outcome.
 if  "current_Adjust_dor" not in st.session_state:
     st.session_state['current_Adjust_dor'] = '01'
 
@@ -566,7 +566,7 @@ if "Chat_Model_Selected" not in st.session_state:
 ## Streamlit widget given BOTH a default and a pre-seeded session_state
 ## entry under its key silently throws its own default away - which once
 ## discarded the chat model a person had picked, on every run. One source
-## of truth, and this is it. FINDINGS 32.
+## of truth, and this is it.
 if "Chat_Engine_Selected" not in st.session_state:
         st.session_state['Chat_Engine_Selected'] = DEFAULT_CHAT_ENGINE
 
@@ -579,7 +579,7 @@ if "Chat_Start_Problem" not in st.session_state:
 ##
 ## 📌 What counts as acceptable belongs to the jurisdiction, not to this app. The
 ## rules differ from place to place and they change, so these are only what the
-## boxes start with. Seeded here, and the boxes pass no `value =`. FINDINGS 32.
+## boxes start with. Seeded here, and the boxes pass no `value =`.
 for _property_type in PROPERTY_TYPES:
     for _statistic, _limits in STARTING_RANGES.items():
         for _bound, _start in zip(("low", "high"), _limits):
@@ -1983,7 +1983,7 @@ def Model_Objective(trial
     A valuation model predicts FORWARD, though, and a stricter design
     would train on earlier sales and validate on later ones. That is a
     different and arguably better choice, and it would change the headline
-    numbers - so it is not being made quietly here. See CLAUDE.md section 7.
+    numbers - so it is not being made quietly here.
     """
 
 
@@ -3620,7 +3620,7 @@ def load_local_model(model_id = LOCAL_MODEL_ID, prefer_4bit = True):
         seconds to start instead of 17.
 
     Quantising is the DEFAULT, not a fallback. bf16 needs 8.57 GiB of video
-    memory, and CLAUDE.md says design to an 8 GB card - so bf16 simply does not
+    memory, and this project designs for an 8 GB card - so bf16 simply does not
     fit the machine we are designing for, while costing only about 20% of the
     speed.
     """
@@ -3878,9 +3878,9 @@ class Local_NAL_Chat_Session:
         ## looking things up. Asked for the mean Just_Value it made no tool call
         ## and said $474,296 - the mean of Model_Value, from an answer further up.
         ## The real figure is $460,044. It also set a county figure beside a model
-        ## figure from different sales, which is the mistake FINDINGS 39 records.
+        ## figure from different sales, which is the mistake the same-rows rule stops.
         ##
-        ## Asking it not to is one more prohibition (FINDINGS 41). This way there
+        ## Asking it not to is one more prohibition. This way there
         ## is no old number to reach for, and "what about in Cape Coral?" still
         ## makes sense, because the question it follows up on is still there.
         ##
@@ -4221,7 +4221,7 @@ def Build_Chat_Bot_And_Data():
     ## parcel to a hardcoded folder. Nothing ever read it back, and the
     ## app already offers proper download buttons further up, so it was a
     ## copy of real people's property records left on disk for no reason.
-    ## It is gone. (CLAUDE.md: public does not mean careless.)
+    ## It is gone. Public does not mean careless.
 
     ## Let go of any earlier chat's connection before rewriting its file.
     Reset_Chat_Session()
@@ -4979,7 +4979,7 @@ else:
                     ## None of the boxes below pass a `value =`. Their
                     ## starting numbers are seeded into session_state at the
                     ## top of this file, and passing both makes Streamlit warn
-                    ## that only one of them can win. FINDINGS 32.
+                    ## that only one of them can win.
                     Model_Expand_col1, Model_Expand_col2 = st.columns(2)
                     
                     with Model_Expand_col1:
@@ -5998,7 +5998,7 @@ else:
                 ## below: the starting value comes from session state,
                 ## which is seeded near the top of this file. Passing
                 ## both means the widget's own default is thrown away,
-                ## silently. FINDINGS 32.
+                ## silently.
                 st.radio('Where should the assistant run?'
                          , CHAT_ENGINES
                          , key = 'Chat_Engine_Selected'
@@ -6183,7 +6183,7 @@ else:
                 for _bound in ("low", "high"):
                     ## No `value =` here on purpose. The starting number is seeded
                     ## near the top of this file. Passing both means the widget's
-                    ## own default is thrown away, silently. FINDINGS 32.
+                    ## own default is thrown away, silently.
                     _row_columns[_position].number_input(
                         f"{_property_type} {RANGE_LABELS[_statistic]} {_bound}"
                         , min_value = 0.0

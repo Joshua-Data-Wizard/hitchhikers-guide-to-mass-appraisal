@@ -475,6 +475,9 @@ rough edges, so
 
 MIT, see [LICENSE](LICENSE). Use it, teach from it, adapt it for your county.
 
+That covers the code and the writing. The Lee County roll isn't ours to license: it's a public
+record, shared here with the county's permission.
+
 ---
 
 *See also: [88mph-mass-appraisal](https://github.com/Joshua-Data-Wizard/88mph-mass-appraisal), the same idea
