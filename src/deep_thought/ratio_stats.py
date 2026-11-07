@@ -71,8 +71,14 @@ __all__ = [
     "prd",
     "weighted_mean_ratio",
     "median_ratio",
+    "ratio_summary",
+    "ratio_is_in_range",
     "format_statistic",
     "INSUFFICIENT_DATA",
+    "RATIO_OUTLIER_LOW",
+    "RATIO_OUTLIER_HIGH",
+    "IAAO_MEDIAN_RATIO_RANGE",
+    "IAAO_PRD_RANGE",
 ]
 
 
@@ -85,6 +91,18 @@ __all__ = [
 #
 # `None` has to be handled deliberately, which is the point.
 INSUFFICIENT_DATA = None
+
+# A ratio outside these limits is treated as an outlier and left out of the
+# trimmed statistics. These are this project's working limits rather than an
+# IAAO figure: they are the same 0.3 and 1.7 the app's model blocks apply.
+RATIO_OUTLIER_LOW = 0.3
+RATIO_OUTLIER_HIGH = 1.7
+
+# The IAAO ranges this project reports against. Kept here so that a new edition
+# of the standards is one edit. COD is left out on purpose, because its range
+# depends on the type of property.
+IAAO_MEDIAN_RATIO_RANGE = (0.90, 1.10)
+IAAO_PRD_RANGE = (0.98, 1.03)
 
 
 def _usable(sale_prices, appraised_values, minimum_sales: int) -> bool:
@@ -191,6 +209,39 @@ def median_ratio(sale_prices, appraised_values, minimum_sales: int = 1):
     sl = np.asarray(sale_prices, dtype="float64").ravel()
     ap = np.asarray(appraised_values, dtype="float64").ravel()
     return float(np.median(ap / sl))
+
+
+def ratio_is_in_range(sale_prices, appraised_values):
+    """True for each sale whose ratio is not an outlier.
+
+    Strictly inside the limits, matching the app's own trim. A missing value
+    or a zero sale price produces a ratio that fails the test, so that row is
+    simply left out rather than raising.
+    """
+    sl = np.asarray(sale_prices, dtype="float64").ravel()
+    ap = np.asarray(appraised_values, dtype="float64").ravel()
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ratio = ap / sl
+    return (ratio > RATIO_OUTLIER_LOW) & (ratio < RATIO_OUTLIER_HIGH)
+
+
+def ratio_summary(sale_prices, appraised_values, minimum_sales: int = 1) -> dict:
+    """The four statistics of a ratio study, computed over ONE set of rows.
+
+    📌 Computing them together is the point. The level and uniformity of a
+    value source only mean something when they describe the same sales, and
+    a dictionary built in one call cannot quietly mix row sets.
+
+    Any statistic that cannot be computed honestly comes back as
+    `INSUFFICIENT_DATA`, so a thin group looks thin.
+    """
+    return {
+        "sales": int(np.asarray(sale_prices).size),
+        "median_ratio": median_ratio(sale_prices, appraised_values, minimum_sales),
+        "weighted_mean_ratio": weighted_mean_ratio(sale_prices, appraised_values, minimum_sales),
+        "cod": cod(sale_prices, appraised_values, minimum_sales),
+        "prd": prd(sale_prices, appraised_values, minimum_sales),
+    }
 
 
 def format_statistic(value, digits: int = 2, scale: float = 1.0,

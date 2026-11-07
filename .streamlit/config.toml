@@ -13,3 +13,9 @@ maxUploadSize = 500
 ## Nothing is lost by turning it off. A reader editing the app restarts it
 ## with the same `uv run streamlit run` command they already used.
 fileWatcherType = "none"
+
+## Streamlit sends anonymous usage statistics by default. This app promises a
+## county that the Local assistant keeps its data in the building, so it
+## should not be phoning anywhere it does not need to.
+[browser]
+gatherUsageStats = false

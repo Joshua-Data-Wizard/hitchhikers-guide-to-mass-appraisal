@@ -84,8 +84,14 @@ uv run python -c "from huggingface_hub import snapshot_download; snapshot_downlo
 Pick a different model by setting `LOCAL_MODEL` in your `.env` — see
 `.env.example`.
 
-In the app, the chat section now has a **Hosted / Local** choice. Local needs no
-API key, no account and no internet.
+In the app, the chat section has a **Hosted / Local** choice. Once the model is
+fetched, Local needs no API key, no account and no internet connection, and no
+parcel data leaves your computer. Measured with every outbound connection refused:
+from pressing Start Chat to the answer, the app tries to reach nothing at all.
+
+ℹ️ One thing a county firewall will still notice: the **Build Model** tab fetches a
+decorative loading animation from `lottiefiles.com`. No data goes with it, and if
+it is blocked the animation is simply skipped.
 
 #### What it costs to run, measured
 
@@ -96,24 +102,45 @@ On an RTX 3080 with the Lee County roll loaded:
 | **4-bit — the default** | **3.07 GiB VRAM** | ~15 tokens/sec |
 | bf16 | 8.57 GiB VRAM | ~19 tokens/sec |
 | no GPU, on the processor | 16.46 GiB **RAM** | ~2.6 tokens/sec |
+| no GPU, memory tight | 8.60 GiB **RAM** | ~0.6 tokens/sec |
 
 It is **quantised by default, not as a fallback.** bf16 needs 8.57 GiB, which
 does not fit the 8 GB card this project designs for, and costs only about 20% of
-the speed. With no GPU it still works — expect about a minute per answer.
+the speed.
+
+With no GPU it still works, and the app picks whichever row fits your free memory.
+⚠️ Those speeds are from a 24-core desktop, so expect a laptop to be several times
+slower. A one-line answer took about 100 seconds there, even on the faster row. If
+neither fits, the app says so rather than grinding your machine to a halt.
 
 #### 🧰 What it can and cannot do
 
-**This is a concept, and its tool belt is short.** Tested against the real Lee
-County roll with every number checked against the same figure computed in
-pandas, the local model reliably handles **counts, filters, group-bys, means,
-medians, quartiles, histograms** and **explaining the statistics**.
+**This is a concept, and its tool belt is growing but still limited.** It can
+count, filter and group your roll, give you means, medians and quartiles, draw a
+histogram, explain the statistics, and run a **ratio study**: median ratio,
+weighted mean ratio, COD and PRD, by city, neighbourhood or sale year.
 
-🛑 **It cannot compute a ratio study statistic.** COD, PRD and the median sales
-ratio all need sale prices, and the chat database holds `Just_Value` and
-`Model_Value` only — so that is a missing *column*, not just a missing function.
-Asked for one, it says so and points you at the **Results** tab. **Check its
-figures on anything more complicated than the list above.** As tools are added,
-that warning gets shorter.
+📐 **The ratio study matches the Results tab, to four decimals, on all four
+property types.** It scores the model only on sales the model never saw, and it
+scores the model and the county on the *same* sales, because anything else
+flatters one of them. Done the obvious way, the same question reports a COD of
+9.98 instead of 11.12, which flatters the model by more than a full point.
+`scripts/check_chat_assistant.py` shows you that comparison.
+
+🛑 **Check its figures on anything more complicated.** A question outside those
+tools depends on SQL a small model wrote for itself, and that is where it goes
+wrong. It also remembers your earlier questions but not its own answers, so
+*"explain that more simply"* will not work on Local. It does not compute PRB yet.
+
+The chat tab lists the questions it has been checked on. To check them yourself:
+
+```bash
+uv run python scripts/check_chat_assistant.py                  # needs no model and no key
+uv run python scripts/check_chat_assistant.py --engine local   # asks the local model
+```
+
+That is evidence from one roll, not a guarantee on yours. As tools are added, this
+warning gets shorter.
 
 This is a separate step on purpose. Gradient boosting — the actual subject of
 this repository — is a CPU job and needs none of it.
@@ -132,7 +159,8 @@ notebooks/   the walkthrough — 254 cells, committed with its outputs, so you
 app/         a Streamlit app: load a Florida county tax roll, generate
              benchmark values, and ask questions about the results
 data/        the Lee County roll, compressed. See data/README.md
-scripts/     extract_data.py (run this) and compress_data.py (maintainer only)
+scripts/     extract_data.py (run this), compress_data.py (maintainer only), and
+             check_chat_assistant.py, which checks the chat assistant's answers
 ```
 
 ---

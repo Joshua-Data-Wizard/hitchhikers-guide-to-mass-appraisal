@@ -156,6 +156,7 @@ from deep_thought.ratio_stats import cod as shared_cod
 from deep_thought.ratio_stats import prd as shared_prd
 from deep_thought.ratio_stats import weighted_mean_ratio as shared_weighted_mean
 from deep_thought.ratio_stats import format_statistic
+from deep_thought.ratio_study import SALES_TABLE, build_sales_rows, run_ratio_study
 
 
 ## ── The bundled example: Lee County, Florida ─────────────────────────────
@@ -463,7 +464,7 @@ if "Hyperparameter_Tuning_Toggle" not in st.session_state:
 
 
 if "Hyperparameter_Tuning_Trials" not in st.session_state:
-    st.session_state['Hyperparameter_Tuning_Trials'] = 150
+    st.session_state['Hyperparameter_Tuning_Trials'] = 50
 
 ## How many cross-validation folds each trial is scored over. 5 is the
 ## usual choice and what the measurements below assume. Fewer is faster
@@ -565,6 +566,16 @@ if "Chat_Model_Selected" not in st.session_state:
 ## of truth, and this is it. FINDINGS 32.
 if "Chat_Engine_Selected" not in st.session_state:
         st.session_state['Chat_Engine_Selected'] = DEFAULT_CHAT_ENGINE
+
+## Why the last Start Chat failed, in words for the person reading it. It has
+## to outlive the container it happened inside, which gets cleared.
+if "Chat_Start_Problem" not in st.session_state:
+        st.session_state['Chat_Start_Problem'] = None
+
+## Each model's qualified sales, keyed by property type, ready to become the
+## chat database's Sales table. See build_sales_rows.
+if "Sales_For_Chat" not in st.session_state:
+        st.session_state['Sales_For_Chat'] = {}
 
 if "Chat_Bot_Data_Base" not in st.session_state:
         st.session_state['Chat_Bot_Data_Base'] = None
@@ -1561,7 +1572,7 @@ class DOR_Summary_Report_Generator ():
 ### GUI Functions ###
 def render_animation():
     #animation_response = requests.get('https://assets1.lottiefiles.com/packages/lf20_vykpwvdsvsdvsdt8b.json')
-    animation_response = requests.get('https://assets1.lottiefiles.com/packages/lf20_vykpwt8b.json')
+    animation_response = requests.get('https://assets1.lottiefiles.com/packages/lf20_vykpwt8b.json', timeout = 3)
     animation_json = dict()
     
     if animation_response.status_code == 200:
@@ -1584,7 +1595,7 @@ def render_animation():
     return st_lottie(animation_json,height=300,width=400)
 
 def render_animation2():
-    animation_response = requests.get('https://lottie.host/864a3252-e826-4a65-ab0d-7fe545b55100/GKjQEfQguG.json')
+    animation_response = requests.get('https://lottie.host/864a3252-e826-4a65-ab0d-7fe545b55100/GKjQEfQguG.json', timeout = 3)
     animation_json = dict()
     
     if animation_response.status_code == 200:
@@ -1912,8 +1923,12 @@ def Model_Objective(trial
     split stays sealed until the final model is scored once.
 
     It costs `n_folds` fits per trial instead of one. Measured on the real
-    SFR training set: about 1.5 s per 5-fold trial, so 150 trials is
-    roughly 4 minutes on a 24-core machine - more on a laptop.
+    SFR training set, 5 folds, 24-core machine: 50 trials took 192 s and 150
+    took 640 s. A laptop will take longer.
+
+    🩹 This used to say 150 trials was roughly 4 minutes. That came from random
+    parameter draws, and TPE settles on the expensive parameters, so the real
+    cost was three times that. The default is 50 now, for that reason.
 
     📌 An open question, deliberately left open
     ------------------------------------------
@@ -2200,6 +2215,18 @@ def Build_ML_Regressors (pg_bar):
                                   & (NAL_Model_Test_SFR_results['sale_ratio_JV'] < 1.7))
         
         NAL_Model_Test_results_Comparable = NAL_Model_Test_SFR_results[_model_ratio_in_range & _county_ratio_in_range]
+
+        ## ── Keep these sales for the chat assistant's ratio study ───────────
+        ##
+        ## 🛑 Both frames, and deliberately not `SFR_Model_Predicitons_All`.
+        ## Those are predictions at the VALUATION date, while these are at each
+        ## sale's own date - the numbers this tab reports. And
+        ## build_sales_rows leaves the model's value EMPTY on training sales,
+        ## so nothing can score the model on what it learned from. Measured:
+        ## doing it the obvious way gives a COD of 9.98 against an honest 11.12,
+        ## which flatters the model by more than a full point.
+        st.session_state["Sales_For_Chat"]["Single Family"] = build_sales_rows(
+            "Single Family", NAL_Model_Train_SFR_results, NAL_Model_Test_SFR_results)
         
         ## Pulled out once, so the metric lines below read as comparisons
         ## rather than as a wall of indexing.
@@ -2464,6 +2491,10 @@ def Build_ML_Regressors (pg_bar):
                                   & (NAL_Model_Test_Vac_Res_results['sale_ratio_JV'] < 1.7))
         
         NAL_Model_Test_Vac_Res_results_Comparable = NAL_Model_Test_Vac_Res_results[_model_ratio_in_range & _county_ratio_in_range]
+
+        ## See the Single Family block for why this is not the all-parcel frame.
+        st.session_state["Sales_For_Chat"]["Vacant Residential"] = build_sales_rows(
+            "Vacant Residential", NAL_Model_Train_Vac_Res_results, NAL_Model_Test_Vac_Res_results)
         
         ## Pulled out once, so the metric lines below read as comparisons
         ## rather than as a wall of indexing.
@@ -2710,6 +2741,10 @@ def Build_ML_Regressors (pg_bar):
                                   & (NAL_Model_Test_Condo_results['sale_ratio_JV'] < 1.7))
         
         NAL_Model_Test_Condo_results_Comparable = NAL_Model_Test_Condo_results[_model_ratio_in_range & _county_ratio_in_range]
+
+        ## See the Single Family block for why this is not the all-parcel frame.
+        st.session_state["Sales_For_Chat"]["Condo"] = build_sales_rows(
+            "Condo", NAL_Model_Train_Condo_results, NAL_Model_Test_Condo_results)
         
         ## Pulled out once, so the metric lines below read as comparisons
         ## rather than as a wall of indexing.
@@ -2948,6 +2983,10 @@ def Build_ML_Regressors (pg_bar):
                                   & (NAL_Model_Test_Commercial_results['sale_ratio_JV'] < 1.7))
         
         NAL_Model_Test_Commercial_results_Comparable = NAL_Model_Test_Commercial_results[_model_ratio_in_range & _county_ratio_in_range]
+
+        ## See the Single Family block for why this is not the all-parcel frame.
+        st.session_state["Sales_For_Chat"]["Commercial"] = build_sales_rows(
+            "Commercial", NAL_Model_Train_Commercial_results, NAL_Model_Test_Commercial_results)
         
         ## Pulled out once, so the metric lines below read as comparisons
         ## rather than as a wall of indexing.
@@ -3222,6 +3261,60 @@ def query_plotter(sql_query: str) -> str:
             "Describe its shape for the user.")
 
 
+@beta_tool
+def ratio_study(compare: str = "model_vs_county", group_by: str = "",
+                property_type: str = "", city: str = "",
+                neighborhood_code: str = "") -> str:
+    """Run a sales ratio study: the median ratio, weighted mean ratio, COD and PRD.
+
+    This is the only correct way to get those statistics. It chooses the right
+    sales and the right sale prices. Never work them out with execute_query. It
+    does not compute PRB, which is a different statistic from PRD.
+
+    Args:
+        compare: "model_vs_county" scores the model and the county roll on the
+            SAME held-out sales - use it for the model, or for any comparison.
+            "county_only" scores the county roll on every qualified sale - use
+            it when the question is only about the county's roll.
+        group_by: Leave blank for one overall answer, or use "city",
+            "neighborhood" or "sale_year" for one line per group, worst COD
+            first.
+        property_type: Leave blank for every modelled type, or name one:
+            "Single Family", "Condo", "Vacant Residential", "Commercial".
+        city: Leave blank, or name one city to study only that city.
+        neighborhood_code: Leave blank, or give one neighborhood code.
+
+    Returns:
+        The statistics, labelled, with how many sales they cover and which ones.
+    """
+    print(f' - DB CALL: ratio_study(compare={compare}, group_by={group_by}, '
+          f'property_type={property_type}, city={city}, '
+          f'neighborhood_code={neighborhood_code})')
+
+    ## 📌 The arithmetic and the choice of rows live in
+    ## src/deep_thought/ratio_study.py rather than here. A tool that reads
+    ## st.session_state cannot be tested from outside a running app, and this
+    ## is the one tool whose answer has to match the Results tab to the digit.
+    try:
+        sales = pd.read_sql_query(f"SELECT * FROM {SALES_TABLE}",
+                                  st.session_state["Chat_Bot_Data_Base"])
+        return run_ratio_study(sales, compare = compare, group_by = group_by,
+                               property_type = property_type, city = city,
+                               neighborhood_code = neighborhood_code)
+    except Exception as e:
+        print(f' - DB CALL FAILED: {e}')
+        return f"The ratio study could not run: {e}"
+
+
+HOSTED_HISTORY_NOTE = """
+
+    YOUR EARLIER ANSWERS. This conversation shows your earlier answers but not
+    the tool calls behind them. Where one used tools, it ends with a note in square
+    brackets saying which. Those figures were looked up properly at the time, so do
+    not apologise for them or re-check them unless the person asks. Never write
+    that note yourself. For each new question, call the tools that question needs."""
+
+
 class NAL_Chat_Session:
     """One conversation with Claude about your roll.
 
@@ -3257,10 +3350,20 @@ class NAL_Chat_Session:
         """
         self.last_tool_calls = []
 
+        ## 🩹 This stores each answer but not the tool calls behind it, so an
+        ## earlier answer looks to the model as though nothing backed it. Told to
+        ## get every figure from a tool, it started apologising for correct
+        ## answers: "I gave figures without running any queries", which was false,
+        ## and re-running queries nobody had asked about. What it lacked was a
+        ## fact, so it gets told the fact.
+        system = self.system_instruction
+        if self.messages:
+            system += HOSTED_HISTORY_NOTE
+
         request = dict(
             model = self.model,
             max_tokens = 16000,
-            system = self.system_instruction,
+            system = system,
             tools = self.tools,
             messages = self.messages + [{"role": "user", "content": question}],
         )
@@ -3329,8 +3432,20 @@ class NAL_Chat_Session:
         if not answer:
             answer = "I could not find an answer to that in your data."
 
+        ## 🩹 The model copies the note below into its own answers, even when told
+        ## not to, so a reader was seeing "[Looked up with: ...]". Asking again would
+        ## be asking again. It is simply taken off.
+        answer = re.sub(r"\s*\[Looked up with:[^\]]*\]", "", answer).strip()
+
+        ## The note goes in the history only, never on screen, so the model can
+        ## see that an earlier answer was looked up. See HOSTED_HISTORY_NOTE.
+        remembered = answer
+        if self.last_tool_calls:
+            remembered += ("\n\n[Looked up with: %s]"
+                           % ", ".join(dict.fromkeys(self.last_tool_calls)))
+
         self.messages.append({"role": "user", "content": question})
-        self.messages.append({"role": "assistant", "content": answer})
+        self.messages.append({"role": "assistant", "content": remembered})
         return answer
 
 
@@ -3344,12 +3459,31 @@ class NAL_Chat_Session:
 ## the only version IT will approve, which is the whole reason it exists.
 ##
 ## ⚠️ It is a SMALLER model with a SHORTER tool belt, and it shows. See
-## LOCAL_TOOL_BELT_LIMITS below for what it cannot do and why.
+## TOOL_BELT_RULES below for what it can and cannot do.
 
 ## The model is read from the environment so a reader can try another one
 ## without editing code. It is NOT downloaded by `uv sync` - see README.
 LOCAL_MODEL_ID = (os.environ.get("LOCAL_MODEL") or "").strip() \
                  or "Qwen/Qwen3.5-4B"
+
+
+LOCAL_PACKAGES_MISSING = (
+    "The local model needs some optional packages that are not installed. "
+    "Close the app, run this once (about a 3 GB download), and start it again:"
+    "\n\n`uv sync --extra slm`\n\nHosted works without them."
+)
+
+
+def local_weights_missing(model_id):
+    """What to tell somebody whose model has not been downloaded yet."""
+    return (
+        f"The model `{model_id}` is not on this computer yet, and the app will "
+        f"not start a large download without being asked. Run this once while "
+        f"you have an internet connection (about 9 GB for the default model):"
+        f"\n\n`uv run python -c \"from huggingface_hub import snapshot_download; "
+        f"snapshot_download('{model_id}')\"`\n\n"
+        f"After that it runs with no connection at all."
+    )
 
 
 def local_model_facts(config):
@@ -3379,9 +3513,34 @@ def local_model_facts(config):
     }
 
 
+class Local_Model_Unavailable(Exception):
+    """Why the local model cannot run here, in words for the person reading it."""
+
+
+## 🔢 What the default model needs, measured on the Lee County roll. A different
+## LOCAL_MODEL will differ, and these are then only a rough guide.
+##
+##     where        needs              speed          (24-core desktop)
+##     GPU, 4-bit    3.07 GiB VRAM     ~15 tokens/sec
+##     CPU, float32 16.46 GiB RAM      ~2.6 tokens/sec
+##     CPU, bf16     8.60 GiB RAM      ~0.6 tokens/sec
+##
+## ⚠️ There is no free option on a processor. bf16 halves the memory and is more
+## than four times slower, because most CPUs have to emulate it. So the app uses
+## the faster one when it fits and the smaller one when it does not, and says
+## which - and these are best-case speeds, so a laptop will be slower.
+LOCAL_VRAM_NEEDED_GIB = 3.5
+LOCAL_RAM_NEEDED_FOR_FLOAT32_GIB = 17.0
+LOCAL_RAM_NEEDED_FOR_BF16_GIB = 9.5
+
+
 @st.cache_resource(show_spinner = False)
 def load_local_model(model_id = LOCAL_MODEL_ID, prefer_4bit = True):
     """Load the local model once and keep it. Returns (tokenizer, model, note).
+
+    Raises `Local_Model_Unavailable`, with a message meant to be shown, when it
+    cannot run here - which for most readers is the expected case, since the
+    packages are an optional extra and the weights are a separate download.
 
     ⚠️ `transformers` and `torch` are imported INSIDE this function on
     purpose. They are the optional `slm` extra, roughly 3 GB, and the
@@ -3390,40 +3549,59 @@ def load_local_model(model_id = LOCAL_MODEL_ID, prefer_4bit = True):
     app at all - which is exactly how this app used to be broken, by a
     `from google import genai` on line 74.
 
-    🔢 Measured on an RTX 3080 (10 GB), Lee County roll loaded:
+    🔒 Everything loads with `local_files_only = True`. Without it, this quietly
+    does two things this feature promises not to:
 
-        4-bit  (the default)   3.07 GiB VRAM    ~15 tokens/sec
-        bf16   (opt-in)        8.57 GiB VRAM    ~19 tokens/sec
-        CPU    (fallback)     16.46 GiB RAM      ~2.6 tokens/sec
+      - with the weights missing, it starts a 9 GB download nobody asked for
+      - with the weights present, it still contacts huggingface.co on every
+        load. Measured on a blocked network: 25 refused connections, and 88
+        seconds to start instead of 17.
 
-    Quantising is the DEFAULT, not a fallback. bf16 needs 8.57 GiB, and
-    CLAUDE.md says design to an 8 GB card - so bf16 simply does not fit the
-    machine we are designing for, while costing only about 20% of the speed.
+    Quantising is the DEFAULT, not a fallback. bf16 needs 8.57 GiB of video
+    memory, and CLAUDE.md says design to an 8 GB card - so bf16 simply does not
+    fit the machine we are designing for, while costing only about 20% of the
+    speed.
     """
-    import torch
-    from transformers import AutoConfig, AutoTokenizer
+    ## 🔒 And this, because `local_files_only` turned out not to be enough. Even
+    ## with it, huggingface_hub fetches a list from huggingface.co just to build
+    ## a User-Agent string. Only offline mode stops that, and the library reads
+    ## the setting once, when first imported - so it is set before the import,
+    ## and on the constant in case something imported the library earlier. This
+    ## affects this process only: the one-time download in the README is a
+    ## separate command and still works.
+    os.environ["HF_HUB_OFFLINE"] = "1"
+    os.environ["TRANSFORMERS_OFFLINE"] = "1"
 
-    ## Resolve from the local cache. A county laptop may be offline, and in
-    ## any case a 9 GB surprise download is not something an app should do
-    ## without saying so - the README covers fetching the model once.
-    config = AutoConfig.from_pretrained(model_id)
+    try:
+        import huggingface_hub.constants
+        huggingface_hub.constants.HF_HUB_OFFLINE = True
+        import torch
+        from transformers import (AutoConfig, AutoModelForCausalLM,
+                                  AutoTokenizer, BitsAndBytesConfig)
+    except ImportError as e:
+        raise Local_Model_Unavailable(LOCAL_PACKAGES_MISSING) from e
+
+    try:
+        config = AutoConfig.from_pretrained(model_id, local_files_only = True)
+        tokenizer = AutoTokenizer.from_pretrained(model_id, local_files_only = True)
+    except OSError as e:
+        raise Local_Model_Unavailable(local_weights_missing(model_id)) from e
+
     facts = local_model_facts(config)
 
-    ## ⚠️ Pick the loader class from the config, do not assume.
-    ## Qwen3.5-4B declares `Qwen3_5ForConditionalGeneration`, the
-    ## image-and-text class. We want the TEXT-only class, which skips 297
-    ## vision tensors we would never use. `AutoModelForCausalLM` resolves
-    ## to it, and costs 3.07 GiB against 3.15 for the full multimodal load.
-    from transformers import AutoModelForCausalLM
+    ## ⚠️ AutoModelForCausalLM resolves to the TEXT-only class, even though
+    ## Qwen3.5-4B declares the image-and-text one. That skips 297 vision
+    ## tensors we would never use, 3.07 GiB against 3.15 for the full load.
+    kwargs = dict(local_files_only = True)
 
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
-
-    kwargs, note = {}, ""
+    free_vram_gib = 0.0
     if torch.cuda.is_available():
-        free_bytes, total_bytes = torch.cuda.mem_get_info()
-        free_gib = free_bytes / 2 ** 30
+        free_vram_gib = torch.cuda.mem_get_info()[0] / 2 ** 30
+        print(" - Local model: GPU available, %.2f GiB free" % free_vram_gib)
+
+    if free_vram_gib >= LOCAL_VRAM_NEEDED_GIB:
+        kwargs["device_map"] = "auto"
         if prefer_4bit:
-            from transformers import BitsAndBytesConfig
             kwargs["quantization_config"] = BitsAndBytesConfig(
                 load_in_4bit             = True,
                 bnb_4bit_quant_type      = "nf4",
@@ -3436,23 +3614,37 @@ def load_local_model(model_id = LOCAL_MODEL_ID, prefer_4bit = True):
             kwargs["dtype"] = torch.bfloat16
             note = ("Running on your %s at full bf16 precision (about 8.6 GB "
                     "of video memory)." % torch.cuda.get_device_name(0))
-        kwargs["device_map"] = "auto"
-        print(" - Local model: GPU available, %.2f GiB free of %.2f"
-              % (free_gib, total_bytes / 2 ** 30))
     else:
-        ## 🐌 No GPU. This WORKS and it is SLOW - measured at 2.6 tokens a
-        ## second, so a short answer takes most of a minute before any tool
-        ## calls. It also wants about 16 GB of RAM. The app says so on
-        ## screen rather than just feeling broken.
-        kwargs["dtype"] = torch.float32
+        free_ram_gib = psutil.virtual_memory().available / 2 ** 30
+        print(" - Local model: no usable GPU, %.2f GiB of RAM free" % free_ram_gib)
         kwargs["device_map"] = "cpu"
-        note = ("No GPU found, so this is running on your processor. It "
-                "works, but expect roughly a minute per answer and about "
-                "16 GB of memory.")
-        print(" - Local model: no CUDA device, falling back to CPU")
+
+        if free_ram_gib >= LOCAL_RAM_NEEDED_FOR_FLOAT32_GIB:
+            kwargs["dtype"] = torch.float32
+            note = ("No usable graphics card, so this is running on your "
+                    "processor, using about 16.5 GB of memory. Expect a minute "
+                    "or more per answer on a fast desktop, and several times "
+                    "that on a laptop.")
+        elif free_ram_gib >= LOCAL_RAM_NEEDED_FOR_BF16_GIB:
+            kwargs["dtype"] = torch.bfloat16
+            note = ("No usable graphics card, so this is running on your "
+                    "processor, in a smaller format because memory is tight: "
+                    "about 8.6 GB. It is slow. Expect several minutes per "
+                    "answer on a fast desktop, and longer on a laptop.")
+        else:
+            raise Local_Model_Unavailable(
+                "This computer has %.1f GB of memory free and no usable "
+                "graphics card, and the local model needs about %.1f GB to "
+                "run. Close some programs and try again, or use Hosted."
+                % (free_ram_gib, LOCAL_RAM_NEEDED_FOR_BF16_GIB))
 
     print(" - Local model: loading %s ..." % model_id)
-    model = AutoModelForCausalLM.from_pretrained(model_id, **kwargs)
+    try:
+        model = AutoModelForCausalLM.from_pretrained(model_id, **kwargs)
+    except ImportError as e:
+        raise Local_Model_Unavailable(LOCAL_PACKAGES_MISSING) from e
+    except OSError as e:
+        raise Local_Model_Unavailable(local_weights_missing(model_id)) from e
     model.eval()
 
     ## Report the shape of the model from the config, never from a literal.
@@ -3561,6 +3753,9 @@ class Local_NAL_Chat_Session:
         result -> generate again -> ... -> plain answer
     """
 
+    ## How many earlier questions it is reminded of. See send_message.
+    QUESTIONS_REMEMBERED = 5
+
     ## How many times round that loop before we give up. Six is enough for
     ## list_tables -> describe_table -> query -> answer with room to spare,
     ## and it stops a model that keeps retrying a query it cannot fix from
@@ -3615,9 +3810,32 @@ class Local_NAL_Chat_Session:
         tools_by_name = {tool.name: tool for tool in self.tools}
         schemas = [tool_to_local_schema(tool) for tool in self.tools]
 
-        messages = ([{"role": "system", "content": self.system_instruction}]
-                    + self.messages
-                    + [{"role": "user", "content": question}])
+        ## 🩹 It remembers your earlier QUESTIONS, not its own earlier ANSWERS.
+        ##
+        ## With its answers in view, in one long conversation, this model stopped
+        ## looking things up. Asked for the mean Just_Value it made no tool call
+        ## and said $474,296 - the mean of Model_Value, from an answer further up.
+        ## The real figure is $460,044. It also set a county figure beside a model
+        ## figure from different sales, which is the mistake FINDINGS 39 records.
+        ##
+        ## Asking it not to is one more prohibition (FINDINGS 41). This way there
+        ## is no old number to reach for, and "what about in Cape Coral?" still
+        ## makes sense, because the question it follows up on is still there.
+        ##
+        ## ⚠️ The cost is that "explain that more simply" cannot work here, and the
+        ## chat tab says so. The hosted model keeps the full conversation.
+        system = self.system_instruction
+        earlier_questions = [m["content"] for m in self.messages
+                             if m["role"] == "user"][-self.QUESTIONS_REMEMBERED:]
+        if earlier_questions:
+            system += ("\n\n    EARLIER IN THIS CONVERSATION the person asked the "
+                       "following, oldest first. This is only so you can follow "
+                       "what they mean. You do not have your earlier answers, so "
+                       "look up any figure again.\n"
+                       + "\n".join("    - %s" % q for q in earlier_questions))
+
+        messages = [{"role": "system", "content": system},
+                    {"role": "user", "content": question}]
 
         answer = None
         try:
@@ -3673,11 +3891,12 @@ class Local_NAL_Chat_Session:
             print(' - Local model error: %s: %s' % (type(e).__name__, e))
             return ("The local model ran into a problem: %s. If this says "
                     "something about memory, try closing other programs, or "
-                    "switch to Hosted at the top of this tab." % e)
+                    "press Start Over and choose Hosted." % e)
 
         if not answer:
             answer = ("I could not reach an answer with the tools I have. "
-                      "Try a narrower question, or switch to Hosted.")
+                      "Try a narrower question, or press Start Over and "
+                      "choose Hosted.")
 
         self.messages.append({"role": "user", "content": question})
         self.messages.append({"role": "assistant", "content": answer})
@@ -3689,7 +3908,7 @@ class Local_NAL_Chat_Session:
 ## ══════════════════════════════════════════════════════════════════════
 ##
 ## 🛑 Every line of this was earned by a measured wrong answer, not added
-## as a precaution. Asked to read a ratio study, Qwen3.5-4B invented SIX
+## as a precaution. Asked to read a ratio study, Qwen3.5-4B invented FIVE
 ## different expansions of "PRD" across four runs - "Percent of Residential
 ## Determination", "Property Ratio Deviation", "Percentile Ratio
 ## Difference" - and described a sales ratio upside down. It was fluent and
@@ -3698,6 +3917,12 @@ class Local_NAL_Chat_Session:
 ## It is in the SHARED prompt rather than the local one because a
 ## definition cannot hurt the hosted model, and because the alternative is
 ## two prompts that drift.
+##
+## 🩹 This used to say the mean Model_Value is "about 40% higher" than the
+## median. That was a fact about Lee County, sent to the model for every
+## county's roll. The assistant then repeated it, and it read like a measured
+## result because it happened to be true here. A number about the data does
+## not belong in the prompt. It comes from a tool, or it does not get said.
 RATIO_STUDY_GROUNDING = """
 
     THE STATISTICS, DEFINED. Use these exactly. Do not invent others, and
@@ -3717,7 +3942,6 @@ RATIO_STUDY_GROUNDING = """
       and it is the MEAN ratio divided by the WEIGHTED MEAN ratio. The IAAO
       acceptable range is 0.98 to 1.03. Above 1.03 suggests regressivity -
       cheaper homes assessed relatively higher than expensive ones.
-    - PRB is the PRICE-RELATED BIAS. This app does not compute it.
 
     NEVER SUBSTITUTE ONE STATISTIC FOR ANOTHER. If you are asked for a
     MEDIAN, do not compute an average and call it a median. Reporting one
@@ -3725,21 +3949,23 @@ RATIO_STUDY_GROUNDING = """
     do here, because an assessor will act on it.
 
     This database is SQLite, which has NO median, percentile or mode
-    function. AVG is the MEAN, and the mean is NOT the median - on this
-    roll the mean Model_Value is about 40% higher than the median, because
-    property values are strongly right-skewed. To get a median, use the
-    describe_Data tool, which reports the 50% quartile.
+    function. AVG is the MEAN, and the mean is NOT the median: property values
+    are strongly right-skewed, so the two can be far apart. To get a median,
+    use the describe_Data tool, which reports the 50% quartile.
 
     If the data needed for an answer is not in the database, say so plainly
     instead of approximating it with something else.
 
     NEVER STATE A NUMBER YOU DID NOT GET FROM A TOOL. Every figure in your
-    answer must come from a tool result in this conversation. Do not
-    estimate one, do not infer one from the shape of a distribution, and do
-    not reach for a word like "approximately", "roughly" or "typically" to
-    cover a number you have not looked up. If you want a mean, a median, a
-    quartile or a standard deviation, call describe_Data and read it off
-    the result.
+    answer about this roll must come from a tool you called for THIS question.
+    Do not reuse a figure from earlier in the conversation, because it may
+    describe a different column or different sales. Do not estimate one, do not
+    infer one from the shape of a distribution, and do not reach for a word like
+    "approximately", "roughly" or "typically" to cover a number you have not
+    looked up. Do not work out a percentage in your head either: answer what was
+    asked, or let execute_query do the arithmetic. If you want a mean, a median,
+    a quartile or a standard deviation, call describe_Data and read it off the
+    result.
 
     This matters most when you describe a chart. Draw it with query_plotter,
     then call describe_Data on the SAME query, and describe the chart using
@@ -3747,26 +3973,60 @@ RATIO_STUDY_GROUNDING = """
     because the person reading it cannot tell the difference."""
 
 
-## 🛑 And the honest part: what this assistant CANNOT do.
-##
-## The chat database holds `Just_Value` and `Model_Value` and NO sale
-## price, so not one ratio study statistic can be computed from it - not
-## because a function is missing, but because a COLUMN is. Without this
-## paragraph the model hunted through the schema for four or five tool
-## rounds and then sometimes answered anyway. With it, it declines in one
-## round and points somewhere useful.
-LOCAL_TOOL_BELT_LIMITS = """
+## 🧰 And the tool belt itself: when to reach for the ratio study, and the
+## ways of getting a ratio that look right and are not. Each "never" here is a
+## route to a real wrong number, measured on the Lee County roll.
+TOOL_BELT_RULES = """
 
-    WHAT YOU CANNOT DO. You have no tool that computes a ratio study
-    statistic, and this database has no sale price column. COD, PRD, PRB
-    and the median sales ratio all need sale prices, so you cannot compute
-    any of them here. If you are asked for one, say that plainly, say it is
-    because the chat database holds no sale prices, and point the person at
-    the ratio study on the Results tab, which does have them.
+    RATIO STUDIES. For the median ratio, weighted mean ratio, COD or PRD, call
+    the ratio_study tool. It uses the right sales and the right sale prices.
 
-    Do not approximate a sales ratio using Just_Value and Model_Value. They
-    are two estimates of value; neither is a sale price, and a ratio
-    between them is not a sales ratio."""
+    - How does the model do, or does it beat the county: ratio_study with no
+      arguments. It scores both on the same sales.
+    - Only about the county's own roll: compare = "county_only".
+    - Broken down by city, neighborhood or year: use group_by.
+    - One city: city = "CAPE CORAL" or whichever city was asked about.
+
+    When you report those figures, copy them exactly as the tool gave them, and
+    say how many sales they cover and which sales they are. The tool states whether
+    a median ratio or a PRD is inside the IAAO range, and who is ahead. Repeat what
+    it states. Do not judge those for yourself. When the tool gives
+    figures for both the model and the county, report both, each with its name,
+    unless the question is only about one of them. Figures from
+    compare = "county_only" cover different sales from the model's figures, so
+    never put them side by side.
+
+    NEVER DECLARE AN OVERALL WINNER between the model and the county. Level
+    (median ratio), uniformity (COD) and vertical equity (PRD) are separate
+    questions, and they often point different ways. Say which is ahead on each
+    statistic and stop there. The model is a benchmark, not a better roll.
+
+    THE SALES TABLE. Every row is one qualified sale, so COUNT(*) on its own
+    counts all of them. Held_Out says what the model did with that sale: 1 means
+    it was kept back to test the model, 0 means the model was trained on it. Both
+    are qualified sales, so do not filter on Held_Out to count qualified sales.
+
+    THE MODEL ON ITS OWN TRAINING SALES. You have no figures for this and
+    ratio_study never reports them. If you are asked, say that you do not have
+    them, because scoring a model on sales it learned from flatters it, and that
+    the Train column on the Results tab shows them. Do NOT answer with the
+    held-out figures as though they were the training figures.
+
+    NEVER work out a ratio statistic yourself with execute_query or
+    describe_Data. In particular:
+
+    - Never divide Model_Value by a sale price. Model_Value is predicted as of
+      the valuation date, for every parcel, and is not comparable with a sale.
+    - Model_Value_At_Sale_Date is empty on the sales the model trained on. That
+      is deliberate. Scoring a model on its own training sales flatters it, so
+      do not look for a way around it.
+    - Never divide Just_Value by Model_Value and call it a sales ratio. Those
+      are two estimates of value, and neither one is a sale.
+
+    WHAT YOU CANNOT DO. PRB, the Price-Related Bias, is not computed in this
+    app. The Sales table holds only the property types a model was built for,
+    so other types have no ratio study here. If you are asked for something you
+    have no tool for, say so plainly."""
 
 
 def describe_chat_database(connection):
@@ -3791,32 +4051,46 @@ def describe_chat_database(connection):
     return "\n".join(lines)
 
 
-## ── Questions this assistant is actually good at ──────────────────────
+## ── What this assistant can be asked ──────────────────────────────────
 ##
-## 📋 Not a guess. Each of these was run against the real Lee County roll
-## with the answer checked against the same figure computed in pandas, and
-## the local model got every one of them right. The three it CANNOT do are
-## listed separately on screen, because knowing where a tool stops being
-## trustworthy is the most useful thing a reader can be told about it.
+## 📋 Not a guess. `scripts/check_chat_assistant.py` puts every question below to
+## the assistant, through its own chat box, on the real Lee County roll, and
+## checks every number in the answer against the same figure computed in pandas
+## or returned by the tool. Re-run it after changing the prompt or the model.
+##
+## 📌 The limits are the more useful half. Knowing where a tool stops being
+## trustworthy is the most valuable thing a reader can be told about it.
 CHAT_EXAMPLE_QUESTIONS = [
     "What columns are in the database?",
     "How many parcels are in the roll?",
     "How many parcels have a Just_Value over 500,000?",
     "What is the median Model_Value?",
-    "What is the mean Just_Value, and the total for the whole roll?",
+    "What is the mean Just_Value?",
     "Which city has the most parcels, and how many?",
     "What is the average Model_Value for parcels built after 2000?",
-    "Draw me a histogram of Model_Value.",
+    "Draw me a histogram of Model_Value and describe its shape.",
     "What does COD stand for, and what is an acceptable range?",
     "If a sales ratio is 0.94, is the property assessed above or below "
     "its sale price?",
+    "How does the model compare with the county roll on COD and PRD?",
+    "What is the county roll's COD on its own, using every qualified sale?",
+    "How do the model and the county roll compare on COD in Cape Coral?",
+    "Which city has the worst COD for the model?",
+    "How many qualified sales are there?",
 ]
 
 CHAT_KNOWN_LIMITS = [
-    "COD, PRD or any ratio study statistic - the chat database has no "
-    "sale prices, so none of them can be computed here. The Results tab "
-    "has the ratio study.",
-    "Anything needing a sale price or a sale date.",
+    "PRB. It is not in the app yet, while the IAAO's new standards are "
+    "pending. The notebook reports it.",
+    "A ratio study for a property type you did not build a model for. The "
+    "sales table only holds the types you modelled.",
+    "Scoring the model on the sales it trained on. That is impossible on "
+    "purpose, because it would flatter the model.",
+    "Questions it has to write its own multi-step SQL for. These depend on the "
+    "model getting the SQL right, so check the figures.",
+    "Following up on an answer, on Local. It remembers your earlier questions "
+    "but not its own answers, so \"explain that more simply\" will not work. Ask "
+    "the question in full. Hosted does not have this limit.",
     "Legal, policy or appeal advice. These are benchmark estimates.",
 ]
 
@@ -3875,6 +4149,9 @@ def Build_Chat_Bot_And_Data():
     ## copy of real people's property records left on disk for no reason.
     ## It is gone. (CLAUDE.md: public does not mean careless.)
 
+    ## Let go of any earlier chat's connection before rewriting its file.
+    Reset_Chat_Session()
+
     ## ── Build the little database the assistant will query ──────────────
     APP_WORKSPACE.mkdir(parents = True, exist_ok = True)
     local_db_file = APP_WORKSPACE / "NAL_Navigator.db"
@@ -3882,7 +4159,33 @@ def Build_Chat_Bot_And_Data():
     ## Write it with an ordinary read-write connection, then CLOSE that
     ## connection. Nothing after this point needs to write.
     builder_connection = sqlite3.connect(local_db_file)
-    Parcel_Data.to_sql('Parcel_Data', builder_connection, if_exists = 'replace')
+    ## 🧨 Dollar columns are stored as REAL, on purpose. SQLite divides two INTEGER
+    ## columns as whole numbers and throws away the remainder, row by row, with no
+    ## error. Measured: a model asked to divide Model_Value by Just_Value got 0.71,
+    ## when the true mean is 1.0971 and the true median 1.0611. A rule asking it to
+    ## CAST would be one more thing to forget, so the trap is simply not there.
+    Parcel_Data.to_sql('Parcel_Data', builder_connection, if_exists = 'replace'
+                       , dtype = {'Model_Value': 'REAL', 'Just_Value': 'REAL'})
+
+    ## 🛑 Sales get a table of their own instead of a column on Parcel_Data. A
+    ## parcel can sell more than once - 482 did - and joining those on would turn
+    ## 268,269 parcels into 268,760, so "how many parcels?" would come back wrong.
+    ##
+    ## City and neighbourhood come from the roll by PARCEL_ID rather than from
+    ## the model frames, which may hold label-encoded neighbourhood codes.
+    if st.session_state["Sales_For_Chat"]:
+        Sales_Data = pd.concat(list(st.session_state["Sales_For_Chat"].values())
+                               , ignore_index = True)
+        Sales_Data = pd.merge(Sales_Data
+                              , NAL_For_DB[['PARCEL_ID', 'City', 'Neighborhood_Code']]
+                                  .drop_duplicates(subset = 'PARCEL_ID')
+                              , on = 'PARCEL_ID'
+                              , how = 'left'
+                              , validate = 'many_to_one')
+        Sales_Data.to_sql(SALES_TABLE, builder_connection
+                          , if_exists = 'replace', index = False
+                          , dtype = {'Sale_Price': 'REAL', 'Just_Value': 'REAL'})
+
     builder_connection.commit()
     builder_connection.close()
 
@@ -3943,91 +4246,18 @@ def Build_Chat_Bot_And_Data():
         )
         print(f'Chat engine: HOSTED - {Model_Name}')
 
-    db_tools = [list_tables, describe_table, execute_query,describe_Data,query_plotter ]
+    db_tools = [list_tables, describe_table, execute_query, describe_Data,
+                query_plotter, ratio_study]
 
-    ## Two earlier drafts of this system prompt used to sit here
-    ## (`instruction2` and `instruction_Original`). Neither was ever
-    ## used - the `instruction` below overwrote both - so they were three
-    ## near-identical prompts where only one could matter, which is how a
-    ## prompt gets edited in the copy that is not running.
-    _unused_draft_prompt = """You are a helpful chatbot that can interact with a SQL database containing property data. You will take the users questions and turn them into SQL
-    queries using the tools available. Once you have the information you need, you will
-    answer the user's question using the data returned.
-
-
-    The database contains the following tables:
-        - Parcel_Data
-            - PARCEL_ID
-            - DOR_Code
-            - Actual_Year_Built
-            - Effective_Year_Built
-            - Land_Square_Footage
-            - Total_Living_Area
-            - Just_Value
-            - Model_Value
-
-    The Parcel_ID is a unique identifier for each property.
-
-
-    You can use the following tools:
-        - list_tables
-        - describe_table
-        - execute_query
-        - describe_Data
-        - query_plotter
-    Use list_tables to see what tables are present, describe_table to understand the
-    schema, and execute_query to issue an SQL SELECT query.
-
-    If you do not know the answer, you can say "I don't know"
-    """
-
-    instruction_Original = """You are a helpful chatbot that can interact with a SQL database containing property data. You will take the users questions and turn them into SQL
-    queries using the tools available. Once you have the information you need, you will
-    answer the user's question using the data returned.
-
-
-    The database contains only one table named Parcel_Data with the following columns:
-        
-        - PARCEL_ID
-        - DOR_Code
-        - Actual_Year_Built
-        - Effective_Year_Built
-        - Land_Square_Footage
-        - Total_Living_Area
-        - Just_Value
-        - Model_Value
-
-    The Parcel_ID is a unique identifier for each property.
-
-
-    You can use the following tools:
-        - list_tables
-        - describe_table
-        - execute_query
-
-    Use list_tables to see what tables are present, describe_table to understand the
-    schema, and execute_query to issue an SQL SELECT query.
-
-    If you do not know the answer, you can say "I don't know"
-    """
-
+    ## 🩹 Two dead near-copies of this prompt sat here for a long time, under
+    ## a comment saying they were gone. One of them nearly took a patch meant
+    ## for the live prompt, because all three ended with the same line. They
+    ## were deleted when the tool belt arrived, along with a hand-written column
+    ## list that named 8 of the 13 columns. The real schema is read from the
+    ## database below, so it cannot drift from the table.
     instruction = """You are a helpful chatbot that can interact with a SQL database containing property data. You will take the users questions and turn them into SQL
     queries using the tools available. Once you have the information you need, you will
     answer the user's question using the data returned.
-
-
-    The database contains only one table named Parcel_Data with the following columns:
-        
-        - PARCEL_ID
-        - DOR_Code
-        - Actual_Year_Built
-        - Effective_Year_Built
-        - Land_Square_Footage
-        - Total_Living_Area
-        - Just_Value
-        - Model_Value
-
-    The Parcel_ID is a unique identifier for each property.
 
     IMPORTANT - what Model_Value is.
 
@@ -4053,12 +4283,13 @@ def Build_Chat_Bot_And_Data():
         - execute_query
         - describe_Data
         - query_plotter
+        - ratio_study
 
     Use list_tables to see what tables are present, describe_table to understand the
-    schema, and execute_query to issue an SQL SELECT query. The tool query_plotter can be used to plot a histogram of a single continuous variable when it is given a valid SQL query with one continuous variable. 
+    schema, and execute_query to issue an SQL SELECT query. The tool query_plotter can be used to plot a histogram of a single continuous variable when it is given a valid SQL query with one continuous variable.
     The describe_Data tool will return the descriptive statistics as a string for a single continuous variable when it is given a valid SQL query contianing one continuous variable.
 
-    When creating descriptive statistics you should format the output for the user in a way that is easy to read and provide a summary. If the user asks you to create a plot and to describe the plot 
+    When creating descriptive statistics you should format the output for the user in a way that is easy to read and provide a summary. If the user asks you to create a plot and to describe the plot
     use the describe_Data function to create the descriptive statistics for the plot.
 
     If you do not know the answer, you can say "I don't know"
@@ -4067,22 +4298,37 @@ def Build_Chat_Bot_And_Data():
     ## ── The shared additions ──────────────────────────────────────────
     ## Both engines get the same definitions, the same prohibition on
     ## swapping one statistic for another, the REAL schema read from the
-    ## database we just built, and the same honest statement of what
-    ## cannot be computed here. See the constants above for why each
-    ## block exists - every one of them is a measured wrong answer.
+    ## database we just built, and the same rules for the ratio study. See
+    ## the constants above for why each block exists - every one of them is
+    ## a measured wrong answer.
     instruction = (instruction
                    + RATIO_STUDY_GROUNDING
                    + describe_chat_database(st.session_state["Chat_Bot_Data_Base"])
-                   + LOCAL_TOOL_BELT_LIMITS)
+                   + TOOL_BELT_RULES)
 
     ## One conversation, holding its own history. See NAL_Chat_Session.
     ## Both classes expose the same `send_message(question) -> str`, so
     ## nothing downstream - not `response_generator`, not the chat box -
     ## needs to know which engine answered.
     if use_local_engine:
-        with st.spinner("Loading the local model - this takes a moment the "
-                        "first time."):
-            local_tokenizer, local_model, device_note = load_local_model()
+        ## 🩹 This was unguarded. Picking Local on a plain `uv sync` - which is
+        ## most readers - put a raw `No module named 'torch'` traceback on the
+        ## page. The local model not being able to run here is an ordinary
+        ## situation, so it gets an ordinary sentence saying what to do.
+        try:
+            with st.spinner("Loading the local model - this takes a moment the "
+                            "first time."):
+                local_tokenizer, local_model, device_note = load_local_model()
+        except Local_Model_Unavailable as e:
+            st.session_state["Chat_Start_Problem"] = str(e)
+            return
+        except Exception as e:
+            print(f' - Local model failed to load: {type(e).__name__}: {e}')
+            st.session_state["Chat_Start_Problem"] = (
+                f"The local model could not start: {e}. If this mentions "
+                f"memory, try closing other programs, or use Hosted."
+            )
+            return
         chat = Local_NAL_Chat_Session(
             tokenizer = local_tokenizer,
             model = local_model,
@@ -4100,7 +4346,8 @@ def Build_Chat_Bot_And_Data():
         )
     greeting_text = (
         "Hi there! I can answer questions about the roll you just modelled - "
-        "counts, medians, breakdowns by neighbourhood, charts. A good first "
+        "counts, medians, breakdowns by neighbourhood, charts and ratio studies. "
+        "A good first "
         "question is *'What columns are in the database?'* so I can tell you "
         "exactly what I can see.\n\n"
         ":warning: One thing to know before we start: the `Model_Value` I "
@@ -4110,23 +4357,21 @@ def Build_Chat_Bot_And_Data():
 
     ## The local model gets its own second paragraph, because the honest
     ## thing to say about it is specific: it is not that the model is bad,
-    ## it is that its TOOL BELT is short. It can count, filter, group and
-    ## summarise perfectly well. It has no tool that computes a ratio study
-    ## statistic, and the database it reads has no sale prices to compute
-    ## one from. That is a missing COLUMN and a missing TOOL, not a missing
-    ## brain - and it is fixable, which is why the wording says "yet".
+    ## it is that its TOOL BELT is short. The ratio study made it longer, and
+    ## anything outside the tools still depends on SQL a small model wrote.
+    ## So the wording is about checking figures, and it says "yet".
     if use_local_engine:
         greeting_text += (
             "\n\n---\n\n**I am running on this computer** - nothing you "
             "type, and no parcel data, leaves the building. " + device_note +
-            "\n\n:toolbox: **My tool belt is limited, so please check my "
-            "figures on anything complicated.** I am good at counting "
-            "parcels, filtering them, grouping them, and giving you means, "
-            "medians and quartiles. I have **no tool yet that computes a "
-            "ratio study statistic** - COD, PRD and the median sales ratio "
-            "all need sale prices, and the database I read does not have "
-            "them. Use the **4. Results** tab for those. As more tools are "
-            "added, this warning gets shorter."
+            "\n\n:toolbox: **My tool belt is still limited, and this is a "
+            "concept rather than a finished product, so please check my figures "
+            "on anything complicated.** I am good at running a ratio study, "
+            "counting parcels, filtering and grouping them, and giving you "
+            "means, medians and quartiles. Anything beyond those tools relies on "
+            "SQL I write myself, which is where I can go wrong. Compare against "
+            "the **4. Results** tab. As more tools are added, this warning gets "
+            "shorter."
         )
     with st.chat_message("assistant"):
         st.write(greeting_text)
@@ -4138,7 +4383,36 @@ def Build_Chat_Bot_And_Data():
     st.session_state['Chat_Launched'] = 'ready'
 
 def Clear_Chat_History():
-    st.session_state["Chat_History"] = []    
+    st.session_state["Chat_History"] = []
+    ## 🩹 This used to clear only what is on screen. The model kept every earlier
+    ## question and answer in its own history, so "clearing" a conversation left
+    ## it answering in the light of one the reader believed was gone.
+    if st.session_state["NAL_Chat_Bot"] is not None:
+        st.session_state["NAL_Chat_Bot"].messages = []
+
+
+def Reset_Chat_Session():
+    """Forget the running chat, so the next one starts from the current model.
+
+    🩹 Nothing used to reset this. So the Hosted / Local choice could be made
+    once per session, and rebuilding a model left the assistant reading the
+    PREVIOUS model's values from a database nobody had rebuilt - while the
+    Results tab showed the new ones.
+
+    The local model stays in `st.cache_resource` on purpose: reloading it costs
+    far more than keeping it, and only a named cache should ever be cleared.
+    """
+    connection = st.session_state["Chat_Bot_Data_Base"]
+    if connection is not None:
+        try:
+            connection.close()
+        except Exception as e:
+            print(f' - Could not close the chat database: {e}')
+    st.session_state["Chat_Bot_Data_Base"] = None
+    st.session_state["NAL_Chat_Bot"] = None
+    st.session_state["Chat_History"] = []
+    st.session_state["Chat_Launched"] = None
+    st.session_state["Chat_Start_Problem"] = None    
 
 def response_generator( question ):
     """Ask the question and hand the answer to Streamlit.
@@ -4590,7 +4864,8 @@ else:
                     ## The 0.85 s is MEASURED: 150 trials x 5 folds took 640 s
                     ## and 623 s on two runs over 20,381 training sales, on a
                     ## 24-logical-core desktop. That is 0.85 s per single fold
-                    ## fit.
+                    ## fit. At the default 50 trials it was 192 s, or 0.77 s per
+                    ## fit, so this errs slightly long at the default.
                     ##
                     ## ⚠️ It is a rough figure and will be optimistic for most
                     ## readers. It scales with the number of training sales,
@@ -4688,6 +4963,9 @@ else:
                                 st.spinner()     
                             time.sleep(1)
                             Build_ML_Regressors(my_bar)
+                            ## A chat started before this build would go on
+                            ## answering from the previous model's values.
+                            Reset_Chat_Session()
                             
 
 
@@ -5458,6 +5736,20 @@ else:
                     "benchmark estimate from this baseline model - not an "
                     "assessed value. " + BENCHMARK_SHORT
                 )
+
+                ## 🛑 Never leave leakage unnamed (CLAUDE.md). This report joins
+                ## the all-parcel predictions to every qualified sale, and about
+                ## four in five of those sales trained the model. Measured on Lee
+                ## County: COD 9.36 here, against 11.12 on sales the model never
+                ## saw. The layout is the DOR's, which is why it is built this
+                ## way, but nobody reading a COD should have to know that.
+                st.warning(
+                    "**The COD and PRD in these tables flatter the model.** They "
+                    "include the sales it was trained on, which is about four "
+                    "in every five. For how the model does on sales it has never "
+                    "seen, use the test column and the model vs county comparison "
+                    "above."
+                )
                 st.markdown('#####')
 
                 if st.session_state["Stratum1GroupLevelStatistics_Report"] is not None:
@@ -5625,17 +5917,12 @@ else:
             st.markdown('#### How About we Discuss your Data!')
             st.write("---")
 
-            ## 📋 These are not suggestions somebody thought sounded good.
-            ## Every question in CHAT_EXAMPLE_QUESTIONS was put to the local
-            ## model against the real Lee County roll, and its answer was
-            ## checked against the same figure computed independently in
-            ## pandas. It got all of them right. The limits beside them are
-            ## the questions it could NOT answer - which is the more useful
-            ## half of the list, and the half a reader is never shown.
+            ## 📋 These are not suggestions somebody thought sounded good. See
+            ## CHAT_EXAMPLE_QUESTIONS for how they are checked.
             with st.expander("What can I ask it?"):
                 q_col, limit_col = st.columns(2)
                 with q_col:
-                    st.markdown("**Questions it handles well**")
+                    st.markdown("**Questions it has been checked on**")
                     for _example in CHAT_EXAMPLE_QUESTIONS:
                         st.markdown("- %s" % _example)
                 with limit_col:
@@ -5643,9 +5930,10 @@ else:
                     for _limit in CHAT_KNOWN_LIMITS:
                         st.markdown("- %s" % _limit)
                     st.caption(
-                        "Checked against the real Lee County roll, with "
-                        "every number verified against the same figure "
-                        "computed in pandas."
+                        "Checked on the Lee County roll by "
+                        "`scripts/check_chat_assistant.py`, with every number "
+                        "compared against the same figure computed separately. "
+                        "A check on one roll is not a guarantee on yours."
                     )
             st.markdown('#####')
                 
@@ -5665,17 +5953,16 @@ else:
 
                 if using_local_engine():
                     st.info(
-                        "**Nothing will leave this computer.** The model "
+                        "**No parcel data will leave this computer.** The model "
                         "runs here, reads the roll you just modelled, and "
-                        "needs no API key and no internet - so the two "
-                        "boxes below are greyed out.\n\n"
-                        ":toolbox: It is a small model with a **limited "
-                        "tool belt**. It is good at counting, filtering, "
-                        "grouping and summarising your roll. It **cannot "
-                        "compute ratio study statistics** - the chat "
-                        "database holds no sale prices - so **check its "
-                        "figures on anything complicated.** More tools are "
-                        "planned, and this is a concept you can watch grow."
+                        "needs no API key and no internet connection - so the "
+                        "two boxes below are greyed out.\n\n"
+                        ":toolbox: It is a small model with a **tool belt that "
+                        "is growing but still limited**, and this is a concept "
+                        "rather than a finished product. It can run a ratio "
+                        "study, and count, filter, group and summarise your "
+                        "roll. **Check its figures on anything more "
+                        "complicated.** More tools are planned."
                     )
                     st.caption(
                         f"Model: `{LOCAL_MODEL_ID}`. The packages come from "
@@ -5735,9 +6022,14 @@ else:
                                 with progress_bar_Chat[1]:                                                                            
                                     #my_bar = st.progress(0, text='')  
                                     try:    
-                                        render_animation2()
+                                        ## Decoration fetched from the internet,
+                                        ## so not when the promise is that this
+                                        ## runs with no connection at all.
+                                        if not using_local_engine():
+                                            render_animation2()
                                     except:
                                         st.spinner("Im working hard!")
+                                st.session_state["Chat_Start_Problem"] = None
                                 Build_Chat_Bot_And_Data()
                                 response_container_Chat.empty()
                     else:
@@ -5749,11 +6041,21 @@ else:
                             'key at all.'
                         )
 
+                ## Outside the container above, which is emptied as soon as the
+                ## build returns and would take this message with it.
+                if st.session_state["Chat_Start_Problem"]:
+                    st.error(st.session_state["Chat_Start_Problem"])
+
             if st.session_state["Chat_Launched"] is not None: 
                  
 
                 st.button('Clear Chat History'
                           , on_click = Clear_Chat_History)
+
+                st.button('Start Over'
+                          , help = "End this chat and choose where the assistant "
+                                   "runs again."
+                          , on_click = Reset_Chat_Session)
                     
                 st.markdown('#####')
                 st.markdown('#####')
