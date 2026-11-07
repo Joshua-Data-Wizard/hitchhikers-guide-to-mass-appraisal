@@ -156,7 +156,10 @@ from deep_thought.ratio_stats import cod as shared_cod
 from deep_thought.ratio_stats import prd as shared_prd
 from deep_thought.ratio_stats import weighted_mean_ratio as shared_weighted_mean
 from deep_thought.ratio_stats import format_statistic
-from deep_thought.ratio_study import SALES_TABLE, build_sales_rows, run_ratio_study
+from deep_thought.ratio_study import (SALES_TABLE, build_sales_rows, run_ratio_study,
+                                      describe_acceptable_ranges, range_key,
+                                      PROPERTY_TYPES, STARTING_RANGES, RANGE_LABELS,
+                                      THIN_GROUP_WARNING, MINIMUM_SALES_FOR_A_STATISTIC)
 
 
 ## ── The bundled example: Lee County, Florida ─────────────────────────────
@@ -571,6 +574,48 @@ if "Chat_Engine_Selected" not in st.session_state:
 ## to outlive the container it happened inside, which gets cleared.
 if "Chat_Start_Problem" not in st.session_state:
         st.session_state['Chat_Start_Problem'] = None
+
+## ── The Settings tab's boxes ───────────────────────────────────────────
+##
+## 📌 What counts as acceptable belongs to the jurisdiction, not to this app. The
+## rules differ from place to place and they change, so these are only what the
+## boxes start with. Seeded here, and the boxes pass no `value =`. FINDINGS 32.
+for _property_type in PROPERTY_TYPES:
+    for _statistic, _limits in STARTING_RANGES.items():
+        for _bound, _start in zip(("low", "high"), _limits):
+            if range_key(_property_type, _statistic, _bound) not in st.session_state:
+                st.session_state[range_key(_property_type, _statistic, _bound)] = float(_start)
+
+if "Minimum_Sales_For_A_Statistic" not in st.session_state:
+        st.session_state['Minimum_Sales_For_A_Statistic'] = MINIMUM_SALES_FOR_A_STATISTIC
+
+if "Thin_Group_Warning" not in st.session_state:
+        st.session_state['Thin_Group_Warning'] = THIN_GROUP_WARNING
+
+
+def Current_Acceptable_Ranges():
+    """The ranges as they stand on the Settings tab, read fresh every time."""
+    return {property_type: {statistic: (st.session_state[range_key(property_type, statistic, "low")],
+                                        st.session_state[range_key(property_type, statistic, "high")])
+                            for statistic in STARTING_RANGES}
+            for property_type in PROPERTY_TYPES}
+
+
+def Range_Colour(value, statistic, property_type):
+    """Green inside the range on the Settings tab, red outside it.
+
+    🩹 These colours used to be hardcoded four times over, once per model, and the
+    PRD test was wrong in all four. `(x < .97) and (x > 1.02)` can never be true, so
+    a test PRD could not be green however good it was, and the train column only
+    went green ABOVE 1.02. That is backwards: 1.00 showed orange and 1.02 showed
+    green. There was also an orange band, a second pair of invented numbers per
+    statistic, so now a figure is simply inside your range or it is not.
+    """
+    low, high = Current_Acceptable_Ranges()[property_type][statistic]
+    if value is None or pd.isna(value):
+        return 'gray'
+    return 'green' if low <= value <= high else 'red'
+
 
 ## Each model's qualified sales, keyed by property type, ready to become the
 ## chat database's Sales table. See build_sales_rows.
@@ -2179,8 +2224,8 @@ def Build_ML_Regressors (pg_bar):
         ##     (JV/0.85) / (SALE*0.85)   median 1.1090   <- the old line
         ##      JV       / (SALE*0.85)   median 0.9442   <- correct
         ##
-        ## The county was shown at the very top of IAAO's accepted
-        ## 0.90-1.10 band when it sits comfortably inside it. ✅ COD is
+        ## The county looked as though it was over-assessing, by about 11%, when
+        ## it sits about 6% below its sale prices. ✅ COD is
         ## scale-free, so the UNIFORMITY numbers never moved - only the
         ## LEVEL ones, which is the half an assessor is judged on.
         ##
@@ -3278,7 +3323,7 @@ def ratio_study(compare: str = "model_vs_county", group_by: str = "",
             it when the question is only about the county's roll.
         group_by: Leave blank for one overall answer, or use "city",
             "neighborhood" or "sale_year" for one line per group, worst COD
-            first.
+            first, with small groups listed apart.
         property_type: Leave blank for every modelled type, or name one:
             "Single Family", "Condo", "Vacant Residential", "Commercial".
         city: Leave blank, or name one city to study only that city.
@@ -3300,10 +3345,27 @@ def ratio_study(compare: str = "model_vs_county", group_by: str = "",
                                   st.session_state["Chat_Bot_Data_Base"])
         return run_ratio_study(sales, compare = compare, group_by = group_by,
                                property_type = property_type, city = city,
-                               neighborhood_code = neighborhood_code)
+                               neighborhood_code = neighborhood_code,
+                               minimum_sales = st.session_state["Minimum_Sales_For_A_Statistic"],
+                               acceptable_ranges = Current_Acceptable_Ranges(),
+                               warn_below = st.session_state["Thin_Group_Warning"])
     except Exception as e:
         print(f' - DB CALL FAILED: {e}')
         return f"The ratio study could not run: {e}"
+
+
+@beta_tool
+def acceptable_ranges() -> str:
+    """Look up the acceptable ranges this office has set for level, COD and PRD.
+
+    Use this whenever you are asked what an acceptable range is. Never quote one
+    from the IAAO, from any other body, or from memory.
+
+    Returns:
+        The range for each statistic and property type, as set on the Settings tab.
+    """
+    print(' - DB CALL: acceptable_ranges()')
+    return describe_acceptable_ranges(Current_Acceptable_Ranges())
 
 
 HOSTED_HISTORY_NOTE = """
@@ -3932,16 +3994,19 @@ RATIO_STUDY_GROUNDING = """
     - A SALES RATIO is the appraised value DIVIDED BY the sale price. A
       ratio BELOW 1.00 means the property is assessed BELOW what it sold
       for. Getting this the wrong way round reverses the conclusion.
-    - MEDIAN RATIO measures the LEVEL of assessment. The IAAO target range
-      is 0.90 to 1.10.
+    - MEDIAN RATIO measures the LEVEL of assessment.
     - COD is the COEFFICIENT OF DISPERSION. It measures UNIFORMITY - how
       far individual ratios scatter around the median. LOWER IS BETTER.
-      The IAAO acceptable range for single family residential is 5.0 to
-      15.0. COD is NOT a percentage difference between two numbers.
+      COD is NOT a percentage difference between two numbers.
     - PRD is the PRICE-RELATED DIFFERENTIAL. It measures VERTICAL EQUITY,
-      and it is the MEAN ratio divided by the WEIGHTED MEAN ratio. The IAAO
-      acceptable range is 0.98 to 1.03. Above 1.03 suggests regressivity -
-      cheaper homes assessed relatively higher than expensive ones.
+      and it is the MEAN ratio divided by the WEIGHTED MEAN ratio. Well above
+      1.00 suggests regressivity - cheaper homes assessed relatively higher
+      than expensive ones.
+
+    ACCEPTABLE RANGES. Never quote an acceptable range from the IAAO, from any
+    other body, or from memory. Each jurisdiction sets its own, and standards
+    change. The only ranges that count are the ones this office has entered on
+    the Settings tab. Call acceptable_ranges to see them.
 
     NEVER SUBSTITUTE ONE STATISTIC FOR ANOTHER. If you are asked for a
     MEDIAN, do not compute an average and call it a median. Reporting one
@@ -3989,12 +4054,18 @@ TOOL_BELT_RULES = """
 
     When you report those figures, copy them exactly as the tool gave them, and
     say how many sales they cover and which sales they are. The tool states whether
-    a median ratio or a PRD is inside the IAAO range, and who is ahead. Repeat what
-    it states. Do not judge those for yourself. When the tool gives
+    each figure is inside this office's range, and who is ahead. Repeat what it
+    states. Do not judge those for yourself. When the tool gives
     figures for both the model and the county, report both, each with its name,
     unless the question is only about one of them. Figures from
     compare = "county_only" cover different sales from the model's figures, so
     never put them side by side.
+
+    SMALL GROUPS. A figure from a handful of sales mostly measures the handful. When
+    ratio_study warns that a figure rests on few sales, pass the warning on plainly
+    and say how many sales it is. If you are asked which group is best or worst,
+    answer from the list of groups with enough sales, and mention that smaller groups
+    are listed apart because their figures cannot be relied on.
 
     NEVER DECLARE AN OVERALL WINNER between the model and the county. Level
     (median ratio), uniformity (COD) and vertical equity (PRD) are separate
@@ -4080,12 +4151,15 @@ CHAT_EXAMPLE_QUESTIONS = [
 ]
 
 CHAT_KNOWN_LIMITS = [
-    "PRB. It is not in the app yet, while the IAAO's new standards are "
-    "pending. The notebook reports it.",
+    "PRB. It is not in the app yet, while new standards are pending. The "
+    "notebook reports it.",
     "A ratio study for a property type you did not build a model for. The "
     "sales table only holds the types you modelled.",
     "Scoring the model on the sales it trained on. That is impossible on "
     "purpose, because it would flatter the model.",
+    "Drawing a conclusion from a small group. It will give you the figures for a "
+    "group with a handful of sales, with a warning, and keeps those groups out of "
+    "any ranking. The Settings tab says how small is small.",
     "Questions it has to write its own multi-step SQL for. These depend on the "
     "model getting the SQL right, so check the figures.",
     "Following up on an answer, on Local. It remembers your earlier questions "
@@ -4247,7 +4321,7 @@ def Build_Chat_Bot_And_Data():
         print(f'Chat engine: HOSTED - {Model_Name}')
 
     db_tools = [list_tables, describe_table, execute_query, describe_Data,
-                query_plotter, ratio_study]
+                query_plotter, ratio_study, acceptable_ranges]
 
     ## 🩹 Two dead near-copies of this prompt sat here for a long time, under
     ## a comment saying they were gone. One of them nearly took a patch meant
@@ -4284,6 +4358,7 @@ def Build_Chat_Bot_And_Data():
         - describe_Data
         - query_plotter
         - ratio_study
+        - acceptable_ranges
 
     Use list_tables to see what tables are present, describe_table to understand the
     schema, and execute_query to issue an SQL SELECT query. The tool query_plotter can be used to plot a histogram of a single continuous variable when it is given a valid SQL query with one continuous variable.
@@ -4540,12 +4615,13 @@ else:
     ## tab is always clickable, and each one checks its own precondition and
     ## says what to do first. Disabling tabs would hide the workflow; this
     ## shows it and still makes it impossible to build a model before merging.
-    tab_data, tab_prep, tab_model, tab_results, tab_chat = st.tabs([
+    tab_data, tab_prep, tab_model, tab_results, tab_chat, tab_settings = st.tabs([
         "1. Load Data"
         , "2. Prepare"
         , "3. Build Model"
         , "4. Results"
         , "5. Ask Questions"
+        , "6. Settings"
     ])
 
     with tab_data:
@@ -5078,33 +5154,21 @@ else:
                 sfr_m_right.markdown( ":" + sfr_perf_color + "["  + str(test_stat_r_square) + "]"   )
 
                 sfr_m_left.markdown("**Weighted Mean Sale Ratio**")
-                sfr_perf_color = 'green' if abs(train_stat_weighted_mean_sale_ratio - 1 ) <= 0.03 else 'orange'
-                if abs(train_stat_weighted_mean_sale_ratio - 1 ) > 0.05 :
-                    sfr_perf_color = 'red'
+                sfr_perf_color = Range_Colour(train_stat_weighted_mean_sale_ratio, "level", "Single Family")
                 sfr_m_middle.markdown( ":" + sfr_perf_color + "["  + str(train_stat_weighted_mean_sale_ratio) + "]"   )
-                sfr_perf_color = 'green' if abs(test_stat_weighted_mean_sale_ratio - 1 ) <= 0.03 else 'orange'
-                if abs(test_stat_weighted_mean_sale_ratio - 1 ) > 0.05 :
-                    sfr_perf_color = 'red'
+                sfr_perf_color = Range_Colour(test_stat_weighted_mean_sale_ratio, "level", "Single Family")
                 sfr_m_right.markdown( ":" + sfr_perf_color + "["  + str(test_stat_weighted_mean_sale_ratio) + "]"   )
 
                 sfr_m_left.markdown("**COD**")
-                sfr_perf_color = 'green' if train_stat_COD < 10 else 'orange'
-                if train_stat_COD > 15 :
-                    sfr_perf_color = 'red'
+                sfr_perf_color = Range_Colour(train_stat_COD, "cod", "Single Family")
                 sfr_m_middle.markdown( ":" + sfr_perf_color + "["  + str(train_stat_COD) + "]"   )
-                sfr_perf_color = 'green' if test_stat_COD < 10 else 'orange'
-                if test_stat_COD > 15 :
-                    sfr_perf_color = 'red'
+                sfr_perf_color = Range_Colour(test_stat_COD, "cod", "Single Family")
                 sfr_m_right.markdown( ":" + sfr_perf_color + "["  + str(test_stat_COD) + "]"   )
 
                 sfr_m_left.markdown("**PRD**")
-                sfr_perf_color = 'green' if (train_stat_PRD   > .97 ) and (train_stat_PRD   > 1.02 ) else 'orange'
-                if abs(train_stat_PRD  - 1 ) > .04 :
-                    sfr_perf_color = 'red'
+                sfr_perf_color = Range_Colour(train_stat_PRD, "prd", "Single Family")
                 sfr_m_middle.markdown( ":" + sfr_perf_color + "["  + str(train_stat_PRD ) + "]"   )
-                sfr_perf_color = 'green' if (test_stat_PRD < .97) and (test_stat_PRD > 1.02)  else 'orange'
-                if abs(test_stat_PRD - 1 )  > 0.04 :
-                    sfr_perf_color = 'red'
+                sfr_perf_color = Range_Colour(test_stat_PRD, "prd", "Single Family")
                 sfr_m_right.markdown( ":" + sfr_perf_color + "["  + str(test_stat_PRD) + "]"   )
 
                 sfr_m_left.markdown("**Mean Absolute Error**")
@@ -5258,33 +5322,21 @@ else:
                 Condo_m_right.markdown( ":" + Condo_perf_color + "["  + str(Condo_test_stat_r_square) + "]"   )
 
                 Condo_m_left.markdown("**Weighted Mean Sale Ratio**")
-                Condo_perf_color = 'green' if abs(Condo_train_stat_weighted_mean_sale_ratio - 1 ) <= 0.03 else 'orange'
-                if abs(Condo_train_stat_weighted_mean_sale_ratio - 1 ) > 0.05 :
-                    Condo_perf_color = 'red'
+                Condo_perf_color = Range_Colour(Condo_train_stat_weighted_mean_sale_ratio, "level", "Condo")
                 Condo_m_middle.markdown( ":" + Condo_perf_color + "["  + str(Condo_train_stat_weighted_mean_sale_ratio) + "]"   )
-                Condo_perf_color = 'green' if abs(Condo_test_stat_weighted_mean_sale_ratio - 1 ) <= 0.03 else 'orange'
-                if abs(Condo_test_stat_weighted_mean_sale_ratio - 1 ) > 0.05 :
-                    Condo_perf_color = 'red'
+                Condo_perf_color = Range_Colour(Condo_test_stat_weighted_mean_sale_ratio, "level", "Condo")
                 Condo_m_right.markdown( ":" + Condo_perf_color + "["  + str(Condo_test_stat_weighted_mean_sale_ratio) + "]"   )
 
                 Condo_m_left.markdown("**COD**")
-                Condo_perf_color = 'green' if Condo_train_stat_COD < 10 else 'orange'
-                if Condo_train_stat_COD > 15 :
-                    Condo_perf_color = 'red'
+                Condo_perf_color = Range_Colour(Condo_train_stat_COD, "cod", "Condo")
                 Condo_m_middle.markdown( ":" + Condo_perf_color + "["  + str(Condo_train_stat_COD) + "]"   )
-                Condo_perf_color = 'green' if Condo_test_stat_COD < 10 else 'orange'
-                if Condo_test_stat_COD > 15 :
-                    Condo_perf_color = 'red'
+                Condo_perf_color = Range_Colour(Condo_test_stat_COD, "cod", "Condo")
                 Condo_m_right.markdown( ":" + Condo_perf_color + "["  + str(Condo_test_stat_COD) + "]"   )
 
                 Condo_m_left.markdown("**PRD**")
-                Condo_perf_color = 'green' if (Condo_train_stat_PRD   > .97 ) and (Condo_train_stat_PRD   > 1.02 ) else 'orange'
-                if abs(Condo_train_stat_PRD  - 1 ) > .04 :
-                    Condo_perf_color = 'red'
+                Condo_perf_color = Range_Colour(Condo_train_stat_PRD, "prd", "Condo")
                 Condo_m_middle.markdown( ":" + Condo_perf_color + "["  + str(Condo_train_stat_PRD ) + "]"   )
-                Condo_perf_color = 'green' if (Condo_test_stat_PRD < .97) and (Condo_test_stat_PRD > 1.02)  else 'orange'
-                if abs(Condo_test_stat_PRD - 1 )  > 0.04 :
-                    Condo_perf_color = 'red'
+                Condo_perf_color = Range_Colour(Condo_test_stat_PRD, "prd", "Condo")
                 Condo_m_right.markdown( ":" + Condo_perf_color + "["  + str(Condo_test_stat_PRD) + "]"   )
 
                 Condo_m_left.markdown("**Mean Absolute Error**")
@@ -5439,33 +5491,21 @@ else:
                 VR_m_right.markdown( ":" + VR_perf_color + "["  + str(VR_test_stat_r_square) + "]"   )
 
                 VR_m_left.markdown("**Weighted Mean Sale Ratio**")
-                VR_perf_color = 'green' if abs(VR_train_stat_weighted_mean_sale_ratio - 1 ) <= 0.03 else 'orange'
-                if abs(VR_train_stat_weighted_mean_sale_ratio - 1 ) > 0.05 :
-                    VR_perf_color = 'red'
+                VR_perf_color = Range_Colour(VR_train_stat_weighted_mean_sale_ratio, "level", "Vacant Residential")
                 VR_m_middle.markdown( ":" + VR_perf_color + "["  + str(VR_train_stat_weighted_mean_sale_ratio) + "]"   )
-                VR_perf_color = 'green' if abs(VR_test_stat_weighted_mean_sale_ratio - 1 ) <= 0.03 else 'orange'
-                if abs(VR_test_stat_weighted_mean_sale_ratio - 1 ) > 0.05 :
-                    VR_perf_color = 'red'
+                VR_perf_color = Range_Colour(VR_test_stat_weighted_mean_sale_ratio, "level", "Vacant Residential")
                 VR_m_right.markdown( ":" + VR_perf_color + "["  + str(VR_test_stat_weighted_mean_sale_ratio) + "]"   )
 
                 VR_m_left.markdown("**COD**")
-                VR_perf_color = 'green' if VR_train_stat_COD < 10 else 'orange'
-                if VR_train_stat_COD > 15 :
-                    VR_perf_color = 'red'
+                VR_perf_color = Range_Colour(VR_train_stat_COD, "cod", "Vacant Residential")
                 VR_m_middle.markdown( ":" + VR_perf_color + "["  + str(VR_train_stat_COD) + "]"   )
-                VR_perf_color = 'green' if VR_test_stat_COD < 10 else 'orange'
-                if VR_test_stat_COD > 15 :
-                    VR_perf_color = 'red'
+                VR_perf_color = Range_Colour(VR_test_stat_COD, "cod", "Vacant Residential")
                 VR_m_right.markdown( ":" + VR_perf_color + "["  + str(VR_test_stat_COD) + "]"   )
 
                 VR_m_left.markdown("**PRD**")
-                VR_perf_color = 'green' if (VR_train_stat_PRD   > .97 ) and (VR_train_stat_PRD   > 1.02 ) else 'orange'
-                if abs(VR_train_stat_PRD  - 1 ) > .04 :
-                    VR_perf_color = 'red'
+                VR_perf_color = Range_Colour(VR_train_stat_PRD, "prd", "Vacant Residential")
                 VR_m_middle.markdown( ":" + VR_perf_color + "["  + str(VR_train_stat_PRD ) + "]"   )
-                VR_perf_color = 'green' if (VR_test_stat_PRD < .97) and (VR_test_stat_PRD > 1.02)  else 'orange'
-                if abs(VR_test_stat_PRD - 1 )  > 0.04 :
-                    VR_perf_color = 'red'
+                VR_perf_color = Range_Colour(VR_test_stat_PRD, "prd", "Vacant Residential")
                 VR_m_right.markdown( ":" + VR_perf_color + "["  + str(VR_test_stat_PRD) + "]"   )
 
                 VR_m_left.markdown("**Mean Absolute Error**")
@@ -5618,33 +5658,21 @@ else:
                 Com_m_right.markdown( ":" + Com_perf_color + "["  + str(Com_test_stat_r_square) + "]"   )
 
                 Com_m_left.markdown("**Weighted Mean Sale Ratio**")
-                Com_perf_color = 'green' if abs(Com_train_stat_weighted_mean_sale_ratio - 1 ) <= 0.03 else 'orange'
-                if abs(Com_train_stat_weighted_mean_sale_ratio - 1 ) > 0.05 :
-                    Com_perf_color = 'red'
+                Com_perf_color = Range_Colour(Com_train_stat_weighted_mean_sale_ratio, "level", "Commercial")
                 Com_m_middle.markdown( ":" + Com_perf_color + "["  + str(Com_train_stat_weighted_mean_sale_ratio) + "]"   )
-                Com_perf_color = 'green' if abs(Com_test_stat_weighted_mean_sale_ratio - 1 ) <= 0.03 else 'orange'
-                if abs(Com_test_stat_weighted_mean_sale_ratio - 1 ) > 0.05 :
-                    Com_perf_color = 'red'
+                Com_perf_color = Range_Colour(Com_test_stat_weighted_mean_sale_ratio, "level", "Commercial")
                 Com_m_right.markdown( ":" + Com_perf_color + "["  + str(Com_test_stat_weighted_mean_sale_ratio) + "]"   )
 
                 Com_m_left.markdown("**COD**")
-                Com_perf_color = 'green' if Com_train_stat_COD < 10 else 'orange'
-                if Com_train_stat_COD > 15 :
-                    Com_perf_color = 'red'
+                Com_perf_color = Range_Colour(Com_train_stat_COD, "cod", "Commercial")
                 Com_m_middle.markdown( ":" + Com_perf_color + "["  + str(Com_train_stat_COD) + "]"   )
-                Com_perf_color = 'green' if Com_test_stat_COD < 10 else 'orange'
-                if Com_test_stat_COD > 15 :
-                    Com_perf_color = 'red'
+                Com_perf_color = Range_Colour(Com_test_stat_COD, "cod", "Commercial")
                 Com_m_right.markdown( ":" + Com_perf_color + "["  + str(Com_test_stat_COD) + "]"   )
 
                 Com_m_left.markdown("**PRD**")
-                Com_perf_color = 'green' if (Com_train_stat_PRD   > .97 ) and (Com_train_stat_PRD   > 1.02 ) else 'orange'
-                if abs(Com_train_stat_PRD  - 1 ) > .04 :
-                    Com_perf_color = 'red'
+                Com_perf_color = Range_Colour(Com_train_stat_PRD, "prd", "Commercial")
                 Com_m_middle.markdown( ":" + Com_perf_color + "["  + str(Com_train_stat_PRD ) + "]"   )
-                Com_perf_color = 'green' if (Com_test_stat_PRD < .97) and (Com_test_stat_PRD > 1.02)  else 'orange'
-                if abs(Com_test_stat_PRD - 1 )  > 0.04 :
-                    Com_perf_color = 'red'
+                Com_perf_color = Range_Colour(Com_test_stat_PRD, "prd", "Commercial")
                 Com_m_right.markdown( ":" + Com_perf_color + "["  + str(Com_test_stat_PRD) + "]"   )
 
                 Com_m_left.markdown("**Mean Absolute Error**")
@@ -5737,18 +5765,28 @@ else:
                     "assessed value. " + BENCHMARK_SHORT
                 )
 
-                ## 🛑 Never leave leakage unnamed (CLAUDE.md). This report joins
-                ## the all-parcel predictions to every qualified sale, and about
-                ## four in five of those sales trained the model. Measured on Lee
-                ## County: COD 9.36 here, against 11.12 on sales the model never
-                ## saw. The layout is the DOR's, which is why it is built this
-                ## way, but nobody reading a COD should have to know that.
-                st.warning(
-                    "**The COD and PRD in these tables flatter the model.** They "
-                    "include the sales it was trained on, which is about four "
-                    "in every five. For how the model does on sales it has never "
-                    "seen, use the test column and the model vs county comparison "
-                    "above."
+                ## 📌 Scoring all qualified sales is CORRECT for this report, and this
+                ## note is an explanation rather than a caveat. When a jurisdiction
+                ## submits, the Department of Revenue calculates these statistics on
+                ## ALL the sales, not on a testing set the jurisdiction kept back.
+                ##
+                ## 🩹 This note first said these tables "flatter the model", which
+                ## framed a correct report as a defect. The user, who does this work,
+                ## pointed out the above, and that many offices come from linear
+                ## regression, where a test set or out-of-fold scoring can seem
+                ## foreign. That second part is what is worth teaching here. Measured
+                ## on Lee County: COD 9.36 here, 11.12 on sales the model never saw.
+                st.info(
+                    "**These tables use all of your qualified sales**, which is how "
+                    "the Department of Revenue calculates these statistics when a "
+                    "jurisdiction submits its values and sales.\n\n"
+                    "**If you are used to linear regression, one thing is different "
+                    "here.** About four in every five of these sales were used to "
+                    "train this model, and a gradient boosting model can fit the sales "
+                    "it learned from far more closely than it can predict new ones. So "
+                    "its COD and PRD read better here than on sales it has never seen. "
+                    "To see those, use the test column and the model vs county "
+                    "comparison above."
                 )
                 st.markdown('#####')
 
@@ -6094,6 +6132,91 @@ else:
                 
 
 
+
+    with tab_settings:
+
+        st.markdown('#### Your acceptable ranges')
+        st.write(
+            "What counts as acceptable is for your jurisdiction to decide. The rules "
+            "differ from place to place and they change, so this app does not tell "
+            "you. Enter your own here. The colours on the **4. Results** tab and the "
+            "chat assistant's answers judge against these straight away."
+        )
+        st.info(
+            "**These boxes start with placeholder numbers, not a standard.** Replace "
+            "them with your own jurisdiction's rules before relying on a colour."
+        )
+
+        ## One row per property type, because the rules differ by type. Number boxes
+        ## rather than an editable table so that the whole path, from a typed number
+        ## to a colour on the Results tab, can be tested.
+        _setting_widths = [2.2] + [1] * (2 * len(STARTING_RANGES))
+        _heading_columns = st.columns(_setting_widths)
+        _heading_columns[0].markdown("**Property type**")
+        _position = 1
+        for _statistic in STARTING_RANGES:
+            _short_name = "Level" if _statistic == "level" else RANGE_LABELS[_statistic]
+            _heading_columns[_position].markdown(f"**{_short_name} low**")
+            _heading_columns[_position + 1].markdown(f"**{_short_name} high**")
+            _position += 2
+
+        for _property_type in PROPERTY_TYPES:
+            _row_columns = st.columns(_setting_widths)
+            _row_columns[0].markdown(_property_type)
+            _position = 1
+            for _statistic in STARTING_RANGES:
+                for _bound in ("low", "high"):
+                    ## No `value =` here on purpose. The starting number is seeded
+                    ## near the top of this file. Passing both means the widget's
+                    ## own default is thrown away, silently. FINDINGS 32.
+                    _row_columns[_position].number_input(
+                        f"{_property_type} {RANGE_LABELS[_statistic]} {_bound}"
+                        , min_value = 0.0
+                        , step = 0.01
+                        , format = "%.2f"
+                        , key = range_key(_property_type, _statistic, _bound)
+                        , label_visibility = "collapsed"
+                    )
+                    _position += 1
+
+        st.caption(
+            "Level applies to both the median ratio and the weighted mean ratio. On "
+            "the Results tab a figure shows green inside your range and red outside it."
+        )
+
+        for _property_type, _ranges in Current_Acceptable_Ranges().items():
+            for _statistic, (_low, _high) in _ranges.items():
+                if _low > _high:
+                    st.warning(
+                        f"{_property_type}, {RANGE_LABELS[_statistic]}: the low of "
+                        f"{_low:g} is above the high of {_high:g}, so every figure "
+                        f"will show as outside the range."
+                    )
+
+        st.markdown('#####')
+        st.markdown('#### Small groups')
+        st.write(
+            "A statistic from a handful of sales mostly measures the handful. One "
+            "unusual sale can move it a long way. These two numbers decide how the chat "
+            "assistant treats a small group, such as a neighbourhood with few sales."
+        )
+        _floor_column, _warning_column = st.columns(2)
+        _floor_column.number_input(
+            "Smallest group that gets any statistic"
+            , min_value = 1
+            , step = 1
+            , key = "Minimum_Sales_For_A_Statistic"
+        )
+        _warning_column.number_input(
+            "Warn about any group with fewer sales than this"
+            , min_value = 1
+            , step = 1
+            , key = "Thin_Group_Warning"
+            , help = "Groups below this are reported with a warning and kept out of "
+                     "any ranking, so that a city with five sales cannot come out "
+                     "as the worst in the county."
+        )
+        st.caption("These settings last until you close or refresh this page.")
 
     if exit_app:
         ## Stop the Streamlit server.

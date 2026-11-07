@@ -54,7 +54,8 @@ ROOT = Path(__file__).resolve().parent.parent
 APP = ROOT / "app" / "NAL_Navigator.py"
 sys.path.insert(0, str(ROOT / "src"))
 
-from deep_thought.ratio_study import SALES_TABLE, run_ratio_study  # noqa: E402
+from deep_thought.ratio_study import (  # noqa: E402
+    PROPERTY_TYPES, SALES_TABLE, STARTING_RANGES, range_key, run_ratio_study)
 
 # Must match the labels the Results tab uses for each model.
 MODEL_TYPES = {
@@ -167,8 +168,9 @@ def click(at, label):
 # ----------------------------------------------------------------------
 _REPORT_LINE = re.compile(
     r"(Model \(benchmark estimate\)|County roll \(Just_Value\)), ([\d,]+) sales: "
-    r"median ratio (\d+(?:\.\d+)?)(?: \([^)]*\))?, weighted mean ratio (\d+(?:\.\d+)?), "
-    r"COD (\d+(?:\.\d+)?), PRD (\d+(?:\.\d+)?)")
+    r"median ratio (\d+(?:\.\d+)?)(?: \([^)]*\))?, "
+    r"weighted mean ratio (\d+(?:\.\d+)?)(?: \([^)]*\))?, "
+    r"COD (\d+(?:\.\d+)?)(?: \([^)]*\))?, PRD (\d+(?:\.\d+)?)(?: \([^)]*\))?")
 
 
 def reconcile():
@@ -225,6 +227,8 @@ def reconcile():
                        "%s vs %.4f" % (match.group(group), truth[key]))
 
     report(compared > 0, "compared something", "%d figures" % compared)
+    check_settings_drive_colours(at)
+    check_small_groups_and_verdicts(sales)
 
     # Why the ratio study does not simply use Model_Value and every sale. This is
     # the design it replaced, so the figures in ratio_study.py can be regenerated.
@@ -259,6 +263,111 @@ def reconcile():
 
 
 # ----------------------------------------------------------------------
+#  Part 1b: the Settings tab drives what the page says
+# ----------------------------------------------------------------------
+# Deliberately not the numbers the boxes start with. A model quoting a range from
+# memory is then caught, rather than passing because memory matches the default.
+UNUSUAL_RANGES = {"level": (0.92, 1.08), "cod": (6.0, 12.0), "prd": (0.97, 1.04)}
+
+_COLOUR = re.compile(r"^:(\w+)\[(-?[\d.]+)\]$")
+
+
+def colours_on_page(at):
+    """Every coloured figure on the Results tab, as {value: [colours]}.
+
+    A list, because one value can sit under several property types: a training
+    weighted mean of exactly 1.0 is common.
+    """
+    found = {}
+    for element in at.markdown:
+        match = _COLOUR.match(str(element.value).strip())
+        if match:
+            found.setdefault(float(match.group(2)), []).append(match.group(1))
+    return found
+
+
+def set_box(at, key, value):
+    at.number_input(key=key).set_value(float(value))
+
+
+def check_settings_drive_colours(at):
+    print()
+    print("  The Settings tab drives the colours on the Results tab")
+    names = {"level": ("Weighted Mean",), "cod": ("COD",), "prd": ("PRD",)}
+    checked = failed = 0
+    for property_type, (_, dict_name, _) in MODEL_TYPES.items():
+        results_tab = at.session_state[dict_name]
+        for statistic, (word,) in names.items():
+            for column in ("Train", "Test"):
+                on_page = colours_on_page(at)
+                candidates = ["%s %s" % (column, word), "Trimmed %s %s" % (column, word)]
+                shown = [float(results_tab[k]) for k in candidates if float(results_tab[k]) in on_page]
+                if not shown:
+                    failed += 1
+                    report(False, "%s %s %s is not on the page" % (property_type, column, word))
+                    continue
+                value = shown[0]
+                low_key = range_key(property_type, statistic, "low")
+                high_key = range_key(property_type, statistic, "high")
+
+                # Inside the range must be green. The old test-column PRD rule could
+                # never manage that, whatever the value.
+                set_box(at, low_key, max(0.0, value - 0.01))
+                set_box(at, high_key, value + 0.01)
+                at.run()
+                inside = colours_on_page(at).get(value, [])
+
+                # Above the range must be red.
+                set_box(at, low_key, max(0.0, value - 0.02))
+                set_box(at, high_key, max(0.0, value - 0.01))
+                at.run()
+                outside = colours_on_page(at).get(value, [])
+
+                start_low, start_high = STARTING_RANGES[statistic]
+                set_box(at, low_key, start_low)
+                set_box(at, high_key, start_high)
+                at.run()
+
+                checked += 1
+                # Green everywhere it appears when inside. Red at least where it
+                # was changed when outside, since another type may share the value.
+                if set(inside) != {"green"} or "red" not in outside:
+                    failed += 1
+                    report(False, "%s %s %s" % (property_type, column, word),
+                           "%s: inside %s, outside %s" % (value, inside, outside))
+    report(failed == 0 and checked == len(MODEL_TYPES) * len(names) * 2,
+           "a typed range reaches every colour",
+           "%d statistics, %d failed" % (checked, failed))
+
+
+def check_small_groups_and_verdicts(sales):
+    print()
+    print("  Ranges, and small groups, in the tool's own words")
+    one_type = sales[sales["Property_Type"] == "Single Family"]
+    plain = run_ratio_study(one_type)
+    report("range" not in plain.lower(), "no verdict at all until an office has set a range")
+    report("iaao" not in plain.lower(), "the tool names no outside standard")
+
+    tight = {"Single Family": {"level": (0.90, 1.10), "cod": (5.0, 15.0), "prd": (0.98, 1.00)}}
+    judged = run_ratio_study(one_type, acceptable_ranges=tight)
+    report("PRD 1.0252 (above your range of 0.98 to 1)" in judged, "a figure above the range says so")
+    report("COD 11.0168 (inside your range of 5 to 15)" in judged, "a figure inside the range says so")
+
+    one_city = one_type.assign(City="ONLY HERE", Held_Out=1)
+    few = one_city[one_city["Model_Value_At_Sale_Date"].notna()].head(8)
+    report("WARNING: this rests on only" in run_ratio_study(few, city="ONLY HERE"),
+           "a single small group carries a warning")
+
+    mixed = pd.concat([few.assign(City="SMALL"),
+                       one_city[one_city["Model_Value_At_Sale_Date"].notna()].head(60).assign(City="LARGE")])
+    by_city = run_ratio_study(mixed, group_by="city")
+    report(by_city.index("LARGE,") < by_city.index("WARNING - SMALL GROUPS") < by_city.index("SMALL,"),
+           "a small group is kept out of the ranking")
+    report("WARNING" not in run_ratio_study(mixed[mixed["City"] == "LARGE"], city="LARGE"),
+           "a group with enough sales carries no warning")
+
+
+# ----------------------------------------------------------------------
 #  Part 2: the assistant, through its own chat box
 # ----------------------------------------------------------------------
 # Not a minus sign after a digit or letter ("0.98-1.03", "$266K-$505K"), and not
@@ -267,7 +376,8 @@ _NUMBER = re.compile(r"(?<![\w.])-?\d+(?:,\d{3})*(?:\.\d+)?(?:\s*million|\s*M\b|
                      re.IGNORECASE)
 
 # Figures that come from the prompt's own definitions, or are not claims at all.
-ALWAYS_ALLOWED = {0.3, 0.5, 0.85, 0.9, 0.94, 0.98, 1.0, 1.03, 1.1, 1.7, 5.0, 15.0, 50.0, 75.0, 25.0, 100.0}
+ALWAYS_ALLOWED = {0.3, 0.5, 0.85, 0.94, 1.0, 1.7, 50.0, 75.0, 25.0, 100.0} | {
+    number for limits in UNUSUAL_RANGES.values() for number in limits}
 
 
 def numbers_written(text):
@@ -498,6 +608,11 @@ def run_battery(engine, keep_history=False):
     label = read_app_constant("CHAT_ENGINE_LOCAL" if engine == "local" else "CHAT_ENGINE_HOSTED")
     at.session_state["Chat_Engine_Selected"] = label
     at.run()
+    for property_type in PROPERTY_TYPES:
+        for statistic, (low, high) in UNUSUAL_RANGES.items():
+            set_box(at, range_key(property_type, statistic, "low"), low)
+            set_box(at, range_key(property_type, statistic, "high"), high)
+    at.run()
     click(at, "Start Chat!")
     if at.session_state["Chat_Launched"] is None:
         problem = at.session_state["Chat_Start_Problem"]
@@ -524,16 +639,23 @@ def run_battery(engine, keep_history=False):
     cape_model, cape_county = head_to_head(cape_coral)
     cape_alone = county_alone(cape_coral)
 
+    # A city with five sales must not be able to win this. The Settings tab decides
+    # how small is small, and the app starts it at this number.
+    enough_sales = at.session_state["Thin_Group_Warning"]
     by_city = []
     for city, rows in sales.groupby("City"):
         held = rows[rows["Held_Out"] == 1]
         keep = (in_range(held["Adjusted_Sale_Price"], held["Model_Value_At_Sale_Date"])
                 & in_range(held["Adjusted_Sale_Price"], held["Just_Value"]))
-        if keep.sum() >= 5:
+        if keep.sum() >= enough_sales:
             model_stats, _ = head_to_head(rows)
             by_city.append((model_stats["cod"], str(city), model_stats))
     by_city.sort(key=lambda entry: entry[0], reverse=True)
     worst_city = by_city[0]
+
+    boca = sales[sales["City"].astype(str).str.upper() == "BOCA GRANDE"]
+    boca_model, boca_county = head_to_head(boca)
+    boca_alone = county_alone(boca)
 
     top_city = parcels["City"].value_counts()
     after_2000 = float(parcels.loc[parcels["Actual_Year_Built"] > 2000, "Model_Value"].astype("float64").mean())
@@ -573,16 +695,17 @@ def run_battery(engine, keep_history=False):
                    r"|better (across|on|in) (all|every|each)\b")
         for found in re.finditer(pattern, low):
             # "not calling an overall winner" is the right answer, not the failure.
-            if not re.search(r"\b(not|no)\b|n.t\b", low[max(0, found.start() - 40):found.start()]):
+            if not re.search(r"\b(not|no|neither)\b|n.t\b", low[max(0, found.start() - 60):found.start()]):
                 return "WRONG - it declared an overall winner"
         return ""
 
     def misjudges_prd(answer, model, county):
         """A PRD inside the range described as outside it. 1.0298 is not above 1.03."""
         low = answer.lower()
-        if max(model["prd"], county["prd"]) <= 1.03 and re.search(
-                r"(?<!\ba )prd[^.\n]{0,60}\b(above|over|exceeds?|outside)\b[^.\n]{0,40}(1\.03|range|limit)", low):
-            return "WRONG - it put a PRD inside the IAAO range outside it"
+        if max(model["prd"], county["prd"]) <= UNUSUAL_RANGES["prd"][1] and re.search(
+                r"(?<!\ba )prd[^.\n]{0,60}\b(above|over|exceeds?|outside)\b[^.\n]{0,40}"
+                r"(1\.04|range|limit)", low):
+            return "WRONG - it put a PRD inside the range outside it"
         return ""
 
     def wants_head_to_head(model, county, stats=("cod", "prd"), allowed=()):
@@ -601,6 +724,29 @@ def run_battery(engine, keep_history=False):
             extra = unexplained(answer, pool)
             return "UNEXPLAINED number(s): %s" % ", ".join(extra) if extra else "CORRECT"
         return check
+
+    def wants_the_office_range(answer):
+        low, high = UNUSUAL_RANGES["cod"]
+        if "coefficient of dispersion" not in answer.lower():
+            return "WRONG - it did not say what COD stands for"
+        if not (has_number(answer, low) and has_number(answer, high)):
+            return "WRONG - it did not give the range on the Settings tab, %g to %g" % (low, high)
+        # 15 is what the boxes start with, and what a model remembers.
+        if has_number(answer, 15.0):
+            return "WRONG - it quoted a range from memory"
+        return "CORRECT"
+
+    def warns_about_a_small_group(answer):
+        # On every qualified sale, the county alone may have enough for no warning.
+        if has_number(answer, boca_alone["cod"]) and has_number(answer, boca_alone["sales"]) \
+                and boca_alone["sales"] >= enough_sales:
+            return "CORRECT"
+        if not has_number(answer, boca_county["cod"]) and not has_number(answer, boca_model["cod"]):
+            return "WRONG - neither Boca Grande COD is in the answer"
+        if not re.search(r"(only|just) (\*\*)?\d+ sales|few sales|too few|small (group|number)|"
+                         r"thin|caution|unreliable|rely", answer.lower()):
+            return "WRONG - it did not pass the small-group warning on"
+        return "CORRECT"
 
     def wants_county_alone(answer):
         if not has_number(answer, county_all["cod"]):
@@ -635,7 +781,7 @@ def run_battery(engine, keep_history=False):
         "Which city has the most parcels, and how many?": wants_number(int(top_city.iloc[0])),
         "What is the average Model_Value for parcels built after 2000?": wants_number(after_2000, [2000]),
         "Draw me a histogram of Model_Value and describe its shape.": wants_chart,
-        "What does COD stand for, and what is an acceptable range?": wants_words("coefficient of dispersion"),
+        "What does COD stand for, and what is an acceptable range?": wants_the_office_range,
         "If a sales ratio is 0.94, is the property assessed above or below its sale price?": wants_words("below"),
         "How does the model compare with the county roll on COD and PRD?":
             wants_head_to_head(model_truth, county_truth),
@@ -707,6 +853,7 @@ def run_battery(engine, keep_history=False):
     limits = [
         # Ambiguous on purpose, so not on the on-screen list.
         ("What is the COD in Cape Coral?", correct_where_stated(cape_model, cape_county)),
+        ("What is the COD in Boca Grande?", warns_about_a_small_group),
         ("What is the PRB for this roll?",
          must_decline(("not computed", "cannot", "can't", "does not compute", "doesn't compute",
                        "not in these results", "do not have", "don't have"))),
@@ -719,7 +866,7 @@ def run_battery(engine, keep_history=False):
                        at.session_state["sfr_preformance_dict"]["Trimmed Train COD"]))),
         ("What is the COD for Commercial properties?",
          must_decline(("no sales", "not modelled", "not modeled", "no commercial",
-                       "only property type", "do not have", "don't have"))),
+                       "only property type", "do not have", "don't have", "cannot", "can't"))),
         ("Divide Model_Value by Just_Value and tell me the median. Is that my sales ratio?",
          not_a_sales_ratio),
     ]
@@ -739,6 +886,9 @@ def run_battery(engine, keep_history=False):
         print("  Q: %s" % ascii_only(question))
         answer, tools = ask(at, question, keep_history)
         verdict = check(answer)
+        if re.search(r"iaao[^.\n]{0,60}(range|target|standard|acceptable)"
+                     r"|(range|target|standard|acceptable)[^.\n]{0,60}iaao", answer.lower()):
+            verdict = "WRONG - it attributed a range to the IAAO"
         if re.search(r"</?tool_call>|</?function[=>]|</?parameter[=>]|\[looked up with", answer, re.I):
             verdict = "BROKEN - tool markup reached the reader"
         # Claiming that looked-up figures were never looked up is alarming, and
@@ -754,6 +904,21 @@ def run_battery(engine, keep_history=False):
             print("     | %s" % line)
         report(verdict.startswith("CORRECT"), ascii_only(question)[:60], verdict)
         results.append(verdict.startswith("CORRECT"))
+
+    # A range changed part way through a chat has to be the one it reports.
+    print()
+    print("  Q: (Settings changed to COD 7 to 11, mid-chat)")
+    set_box(at, range_key("Single Family", "cod", "low"), 7.0)
+    set_box(at, range_key("Single Family", "cod", "high"), 11.0)
+    at.run()
+    answer, tools = ask(at, "What is the acceptable range for COD on Single Family?", keep_history)
+    print("     tools: %s" % (", ".join(tools) or "(none)"))
+    for line in ascii_only(answer).splitlines():
+        print("     | %s" % line)
+    follows = has_number(answer, 7.0) and has_number(answer, 11.0)
+    report(follows, "a range changed mid-chat is the one reported",
+           "CORRECT" if follows else "WRONG - it did not report 7 to 11")
+    results.append(follows)
 
     print()
     print("  verified: %d of %d" % (sum(results), len(results)))

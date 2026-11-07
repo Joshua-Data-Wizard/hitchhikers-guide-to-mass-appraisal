@@ -56,8 +56,6 @@ import numpy as np
 import pandas as pd
 
 from deep_thought.ratio_stats import (
-    IAAO_MEDIAN_RATIO_RANGE,
-    IAAO_PRD_RANGE,
     RATIO_OUTLIER_HIGH,
     RATIO_OUTLIER_LOW,
     format_statistic,
@@ -69,6 +67,12 @@ __all__ = [
     "SALES_TABLE",
     "build_sales_rows",
     "run_ratio_study",
+    "describe_acceptable_ranges",
+    "range_key",
+    "PROPERTY_TYPES",
+    "STARTING_RANGES",
+    "RANGE_LABELS",
+    "THIN_GROUP_WARNING",
     "MINIMUM_SALES_FOR_A_STATISTIC",
     "COMPARE_MODEL_VS_COUNTY",
     "COMPARE_COUNTY_ONLY",
@@ -82,6 +86,22 @@ COMPARE_COUNTY_ONLY = "county_only"
 # Below this many sales a group gets a count and no statistics. A COD from three
 # sales is noise wearing a decimal point. Five matches the app's DOR report.
 MINIMUM_SALES_FOR_A_STATISTIC = 5
+
+# Below this many sales a group still gets its statistics, in a section of its own
+# and with a warning. Five sales is a low bar, and the failure is structural: sorted
+# worst first, a city with five sales outranks everything, so "which city has the
+# worst COD?" answers with noise. Both numbers are on the app's Settings tab.
+THIN_GROUP_WARNING = 30
+
+PROPERTY_TYPES = ("Single Family", "Condo", "Vacant Residential", "Commercial")
+
+# 📌 What counts as acceptable belongs to the jurisdiction. The rules differ from
+# place to place and they change, so nothing here is a standard. These are only what
+# the boxes on the Settings tab start with, so that the colours mean something before
+# anybody has typed in their own.
+STARTING_RANGES = {"level": (0.90, 1.10), "cod": (5.0, 15.0), "prd": (0.98, 1.03)}
+
+RANGE_LABELS = {"level": "Level (median and weighted mean ratio)", "cod": "COD", "prd": "PRD"}
 
 # A county can have hundreds of neighbourhoods. Show both ends of the list, so
 # "which is worst" and "which is best" can both be answered from one result.
@@ -139,6 +159,22 @@ def build_sales_rows(property_type, trained_on, held_out,
     return rows
 
 
+def range_key(property_type, statistic, bound):
+    """The name one Settings tab box is stored under, in one place."""
+    return "Range_%s_%s_%s" % (property_type.replace(" ", "_"), statistic, bound)
+
+
+def describe_acceptable_ranges(acceptable_ranges):
+    """The ranges an office has entered, as text a person or a model can quote."""
+    lines = ["Acceptable ranges entered on the Settings tab. These are this office's "
+             "own rules, not a published standard."]
+    for property_type, ranges in acceptable_ranges.items():
+        lines.append("%s: %s." % (property_type, ", ".join(
+            "%s %g to %g" % (RANGE_LABELS[statistic], low, high)
+            for statistic, (low, high) in ranges.items())))
+    return "\n".join(lines)
+
+
 def _as_code(value):
     """A neighbourhood code as text, however it was stored.
 
@@ -163,10 +199,10 @@ def _against_range(value, limits):
     """Whether a statistic is inside a range, decided here and written down.
 
     📌 Measured: asked about a PRD of 1.0298, both the small local model AND the
-    hosted one said it was above the 1.03 limit. Comparing 1.0298 with 1.03 is
+    hosted one said it was above a limit of 1.03. Comparing 1.0298 with 1.03 is
     exactly the kind of thing to do in code and hand over as a fact.
     """
-    if value is None or not np.isfinite(value):
+    if limits is None or value is None or not np.isfinite(value):
         return ""
     low, high = limits
     if value < low:
@@ -175,18 +211,21 @@ def _against_range(value, limits):
         where = "above"
     else:
         where = "inside"
-    return " (%s the IAAO range of %.2f to %.2f)" % (where, low, high)
+    return " (%s your range of %g to %g)" % (where, low, high)
 
 
-def _statistics_text(summary):
+def _statistics_text(summary, ranges = None):
     """One value source's statistics, every number labelled."""
-    return ("median ratio %s%s, weighted mean ratio %s, COD %s, PRD %s%s"
+    ranges = ranges or {}
+    return ("median ratio %s%s, weighted mean ratio %s%s, COD %s%s, PRD %s%s"
             % (format_statistic(summary["median_ratio"], digits = 4),
-               _against_range(summary["median_ratio"], IAAO_MEDIAN_RATIO_RANGE),
+               _against_range(summary["median_ratio"], ranges.get("level")),
                format_statistic(summary["weighted_mean_ratio"], digits = 4),
+               _against_range(summary["weighted_mean_ratio"], ranges.get("level")),
                format_statistic(summary["cod"], digits = 4),
+               _against_range(summary["cod"], ranges.get("cod")),
                format_statistic(summary["prd"], digits = 4),
-               _against_range(summary["prd"], IAAO_PRD_RANGE)))
+               _against_range(summary["prd"], ranges.get("prd"))))
 
 
 def _model_vs_county(rows, minimum_sales):
@@ -224,7 +263,7 @@ def _who_is_ahead(model, county):
 
     🛑 Measured: left to work this out, the small model wrote that the county
     "performs slightly better across all three metrics", when the model's median
-    ratio was the one closer to 1.00. Like the IAAO ranges, this is a comparison
+    ratio was the one closer to 1.00. Like the range verdicts, this is a comparison
     to make in code and hand over as a fact. The closing words are there for the
     same reason: level, uniformity and vertical equity are separate questions.
     """
@@ -252,12 +291,20 @@ def _who_is_ahead(model, county):
             % (level, uniformity, equity))
 
 
-def _whole_group_report(property_type, rows, compare, minimum_sales):
+def _thin_warning(count):
+    """What a figure from a handful of sales needs to say, every time."""
+    return ("WARNING: this rests on only %s sales, which is too few to rely on. One "
+            "unusual sale can move these figures a long way. Pass this warning on, "
+            "and do not draw a conclusion from these figures alone."
+            % format(count, ","))
+
+
+def _whole_group_report(property_type, rows, compare, minimum_sales, ranges, warn_below):
     limits = "%s to %s" % (RATIO_OUTLIER_LOW, RATIO_OUTLIER_HIGH)
 
     if compare == COMPARE_COUNTY_ONLY:
         count, county = _county_only(rows, minimum_sales)
-        return [
+        lines = [
             "RATIO STUDY - %s - the county roll on its own" % property_type,
             "Sales used: %s qualified sales with a Just_Value ratio from %s, "
             "using sale prices adjusted for cost of sale. These include sales "
@@ -265,14 +312,17 @@ def _whole_group_report(property_type, rows, compare, minimum_sales):
             "model plays no part in these figures."
             % (format(count, ","), limits),
             "County roll (Just_Value), %s sales: %s."
-            % (format(count, ","), _statistics_text(county)),
+            % (format(count, ","), _statistics_text(county, ranges)),
             "To compare the county with the model, ask for model_vs_county, "
             "which uses fewer sales so that both sides are scored on the same "
             "ones. Do not compare these figures with the model's.",
         ]
+        if count < warn_below:
+            lines.insert(1, _thin_warning(count))
+        return lines
 
     count, model, county = _model_vs_county(rows, minimum_sales)
-    return [
+    lines = [
         "RATIO STUDY - %s - the model and the county roll on the SAME sales"
         % property_type,
         "Sales used: %s held-out sales the model never saw in training, with "
@@ -281,14 +331,31 @@ def _whole_group_report(property_type, rows, compare, minimum_sales):
         "of the Results tab. The model is never scored here on the sales it "
         "was trained on." % (format(count, ","), limits),
         "Model (benchmark estimate), %s sales: %s."
-        % (format(count, ","), _statistics_text(model)),
+        % (format(count, ","), _statistics_text(model, ranges)),
         "County roll (Just_Value), %s sales: %s."
-        % (format(count, ","), _statistics_text(county)),
+        % (format(count, ","), _statistics_text(county, ranges)),
         _who_is_ahead(model, county),
     ]
+    if count < warn_below:
+        lines.insert(1, _thin_warning(count))
+    return lines
 
 
-def _by_group_report(property_type, rows, compare, group_column, minimum_sales):
+def _shown_groups(entries):
+    """One line per group, both ends of the list if there are too many to show."""
+    lines = [entry[2] for entry in entries]
+    if len(lines) <= MOST_GROUPS_SHOWN:
+        return lines
+    half = MOST_GROUPS_SHOWN // 2
+    return (lines[:half]
+            + ["... %s groups in the middle of the list are not shown. Ask about one "
+               "by name to see it. The lowest (best) COD groups follow."
+               % format(len(lines) - MOST_GROUPS_SHOWN, ",")]
+            + lines[-half:])
+
+
+def _by_group_report(property_type, rows, compare, group_column, minimum_sales,
+                     ranges, warn_below):
     limits = "%s to %s" % (RATIO_OUTLIER_LOW, RATIO_OUTLIER_HIGH)
     entries, too_thin = [], 0
 
@@ -313,12 +380,12 @@ def _by_group_report(property_type, rows, compare, group_column, minimum_sales):
 
         if model is None:
             line = "%s, %s sales: county %s." % (name, format(count, ","),
-                                                 _statistics_text(county))
+                                                 _statistics_text(county, ranges))
         else:
             line = ("%s, %s sales: model %s. County %s."
-                    % (name, format(count, ","), _statistics_text(model),
-                       _statistics_text(county)))
-        entries.append((sort_key, line))
+                    % (name, format(count, ","), _statistics_text(model, ranges),
+                       _statistics_text(county, ranges)))
+        entries.append((sort_key, count, line))
 
     entries.sort(key = lambda entry: entry[0], reverse = True)
 
@@ -335,19 +402,22 @@ def _by_group_report(property_type, rows, compare, group_column, minimum_sales):
                  "model COD first." % limits)
 
     lines = [heading, which]
+    enough = [entry for entry in entries if entry[1] >= warn_below]
+    thin = [entry for entry in entries if entry[1] < warn_below]
+
+    if enough:
+        lines.append("GROUPS WITH %d OR MORE SALES. Answer questions about the best or "
+                     "worst group from this list:" % warn_below)
+        lines.extend(_shown_groups(enough))
+    if thin:
+        lines.append("WARNING - SMALL GROUPS, with fewer than %d sales. These are kept "
+                     "apart on purpose and must not be ranked with the list above. "
+                     "One unusual sale can move their figures a long way, so do not "
+                     "draw a conclusion from them, and say how few sales they rest on "
+                     "if you mention them:" % warn_below)
+        lines.extend(_shown_groups(thin))
     if not entries:
-        lines.append("No group has the %d sales needed for a statistic."
-                     % minimum_sales)
-    elif len(entries) <= MOST_GROUPS_SHOWN:
-        lines.extend(line for _, line in entries)
-    else:
-        half = MOST_GROUPS_SHOWN // 2
-        lines.extend(line for _, line in entries[:half])
-        lines.append("... %s groups in the middle of the list are not shown. "
-                     "Ask about one by name to see it. The lowest (best) COD "
-                     "groups follow."
-                     % format(len(entries) - MOST_GROUPS_SHOWN, ","))
-        lines.extend(line for _, line in entries[-half:])
+        lines.append("No group has the %d sales needed for a statistic." % minimum_sales)
 
     if too_thin:
         lines.append("%s group(s) have fewer than %d sales and get no statistics."
@@ -357,7 +427,9 @@ def _by_group_report(property_type, rows, compare, group_column, minimum_sales):
 
 def run_ratio_study(sales, compare = "", group_by = "", property_type = "",
                     city = "", neighborhood_code = "",
-                    minimum_sales = MINIMUM_SALES_FOR_A_STATISTIC):
+                    minimum_sales = MINIMUM_SALES_FOR_A_STATISTIC,
+                    acceptable_ranges = None,
+                    warn_below = THIN_GROUP_WARNING):
     """Answer a ratio study question, as text a person or a model can quote.
 
     Args:
@@ -370,6 +442,12 @@ def run_ratio_study(sales, compare = "", group_by = "", property_type = "",
         city: optional, any case.
         neighborhood_code: optional.
         minimum_sales: fewer sales than this gets no statistics.
+        acceptable_ranges: optional. The office's own ranges, by property type and
+            then by "level", "cod" and "prd". Each figure then says whether it is
+            inside. Left out, the figures are reported without a verdict, because
+            this module has no opinion on what is acceptable.
+        warn_below: fewer sales than this is reported with a warning, and kept apart
+            from the larger groups.
 
     Returns:
         The report, or a sentence saying what was wrong with the request. It
@@ -423,12 +501,13 @@ def run_ratio_study(sales, compare = "", group_by = "", property_type = "",
     blocks = []  # one per property type, never pooled
     for one_type in sorted(rows["Property_Type"].dropna().unique()):
         type_rows = rows[rows["Property_Type"] == one_type]
+        ranges = (acceptable_ranges or {}).get(one_type)
         if group_column:
             lines = _by_group_report(one_type, type_rows, wanted_compare,
-                                     group_column, minimum_sales)
+                                     group_column, minimum_sales, ranges, warn_below)
         else:
             lines = _whole_group_report(one_type, type_rows, wanted_compare,
-                                        minimum_sales)
+                                        minimum_sales, ranges, warn_below)
         blocks.append("\n".join(lines))
 
     if not blocks:

@@ -110,7 +110,7 @@ the speed.
 
 With no GPU it still works, and the app picks whichever row fits your free memory.
 ⚠️ Those speeds are from a 24-core desktop, so expect a laptop to be several times
-slower. A one-line answer took about 100 seconds there, even on the faster row. If
+slower. A one-line answer took about two minutes there, even on the faster row. If
 neither fits, the app says so rather than grinding your machine to a halt.
 
 #### 🧰 What it can and cannot do
@@ -126,6 +126,17 @@ scores the model and the county on the *same* sales, because anything else
 flatters one of them. Done the obvious way, the same question reports a COD of
 9.98 instead of 11.12, which flatters the model by more than a full point.
 `scripts/check_chat_assistant.py` shows you that comparison.
+
+⚙️ **What counts as acceptable is yours to decide.** The rules differ between
+jurisdictions and they change, so the app does not tell you. Enter your own ranges
+for level, COD and PRD on the **Settings** tab. The colours on the Results tab and
+the assistant's answers judge against those. The boxes start with placeholder numbers
+rather than a standard, so replace them before relying on a colour.
+
+🔍 **A small group is kept out of any ranking.** A statistic from a handful of sales
+mostly measures the handful, so groups below the line you set on the Settings tab come
+with a warning and are listed apart. A city with five sales cannot come out as the
+worst in the county.
 
 🛑 **Check its figures on anything more complicated.** A question outside those
 tools depends on SQL a small model wrote for itself, and that is where it goes

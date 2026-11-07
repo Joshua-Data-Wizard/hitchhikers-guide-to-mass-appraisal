@@ -77,8 +77,6 @@ __all__ = [
     "INSUFFICIENT_DATA",
     "RATIO_OUTLIER_LOW",
     "RATIO_OUTLIER_HIGH",
-    "IAAO_MEDIAN_RATIO_RANGE",
-    "IAAO_PRD_RANGE",
 ]
 
 
@@ -97,12 +95,6 @@ INSUFFICIENT_DATA = None
 # IAAO figure: they are the same 0.3 and 1.7 the app's model blocks apply.
 RATIO_OUTLIER_LOW = 0.3
 RATIO_OUTLIER_HIGH = 1.7
-
-# The IAAO ranges this project reports against. Kept here so that a new edition
-# of the standards is one edit. COD is left out on purpose, because its range
-# depends on the type of property.
-IAAO_MEDIAN_RATIO_RANGE = (0.90, 1.10)
-IAAO_PRD_RANGE = (0.98, 1.03)
 
 
 def _usable(sale_prices, appraised_values, minimum_sales: int) -> bool:
@@ -139,9 +131,8 @@ def cod(sale_prices, appraised_values, minimum_sales: int = 1):
     ratio. Lower is better: it means similar properties are being valued
     similarly.
 
-    IAAO guidance, roughly: under 10 is excellent for single-family in a
-    homogeneous area, 10-15 is acceptable, over 20 suggests a real
-    uniformity problem worth investigating.
+    What counts as acceptable is for each jurisdiction to decide, so this module
+    computes the number and does not judge it. See `ratio_study.STARTING_RANGES`.
 
     Args:
         sale_prices: the sale prices, adjusted however your jurisdiction
@@ -170,8 +161,6 @@ def prd(sale_prices, appraised_values, minimum_sales: int = 1):
     expensive ones, which is the common failure and the one that falls
     hardest on the people least able to appeal it.
 
-    IAAO's accepted range is 0.98 to 1.03.
-
     Returns:
         The PRD, or `INSUFFICIENT_DATA`.
     """
@@ -194,8 +183,6 @@ def weighted_mean_ratio(sale_prices, appraised_values, minimum_sales: int = 1):
 
 def median_ratio(sale_prices, appraised_values, minimum_sales: int = 1):
     """The median of the individual ratios - the headline level of assessment.
-
-    IAAO's accepted range is 0.90 to 1.10.
 
     📌 Check this one FIRST when reviewing any ratio study. A median far from
     1.00 usually means the numerator and denominator are not on the same
