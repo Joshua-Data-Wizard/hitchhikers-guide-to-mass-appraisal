@@ -275,7 +275,7 @@ def main() -> int:
     for name in prj:
         if name and (data / name).exists():
             print(f"\n {MAP} {name} is committed directly {DASH} it is the")
-            print("     projection definition the county's shapefile shipped without.")
+            print("     projection definition the shapefile shipped without.")
 
     print(f"\nNext: open notebooks/ and run the first cell. {ROCKET}")
     print("Thanks to Lee County, Florida for permission to share this data.")

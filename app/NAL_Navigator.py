@@ -3314,7 +3314,8 @@ def ratio_study(compare: str = "model_vs_county", group_by: str = "",
 
     This is the only correct way to get those statistics. It chooses the right
     sales and the right sale prices. Never work them out with execute_query. It
-    does not compute PRB, which is a different statistic from PRD.
+    computes neither PRB nor VEI, the Vertical Equity Indicator that replaces it.
+    PRB is a different statistic from PRD.
 
     Args:
         compare: "model_vs_county" scores the model and the county roll on the
@@ -4094,8 +4095,10 @@ TOOL_BELT_RULES = """
     - Never divide Just_Value by Model_Value and call it a sales ratio. Those
       are two estimates of value, and neither one is a sale.
 
-    WHAT YOU CANNOT DO. PRB, the Price-Related Bias, is not computed in this
-    app. The Sales table holds only the property types a model was built for,
+    WHAT YOU CANNOT DO. Neither PRB, the Price-Related Bias, nor VEI, the
+    Vertical Equity Indicator, is computed in this app. VEI replaces PRB, which
+    is being phased out, and it is planned for this app. The Sales table holds
+    only the property types a model was built for,
     so other types have no ratio study here. If you are asked for something you
     have no tool for, say so plainly."""
 
@@ -4151,8 +4154,9 @@ CHAT_EXAMPLE_QUESTIONS = [
 ]
 
 CHAT_KNOWN_LIMITS = [
-    "PRB. It is not in the app yet, while new standards are pending. The "
-    "notebook reports it.",
+    "VEI, the Vertical Equity Indicator. It comes to the app once the IAAO's "
+    "new standards are released. It replaces PRB, which the IAAO is phasing "
+    "out, so PRB will not be added. The notebook reports both.",
     "A ratio study for a property type you did not build a model for. The "
     "sales table only holds the types you modelled.",
     "Scoring the model on the sales it trained on. That is impossible on "
@@ -4437,7 +4441,7 @@ def Build_Chat_Bot_And_Data():
     ## So the wording is about checking figures, and it says "yet".
     if use_local_engine:
         greeting_text += (
-            "\n\n---\n\n**I am running on this computer** - nothing you "
+            "\n\n**I am running on this computer** - nothing you "
             "type, and no parcel data, leaves the building. " + device_note +
             "\n\n:toolbox: **My tool belt is still limited, and this is a "
             "concept rather than a finished product, so please check my figures "
@@ -4446,11 +4450,12 @@ def Build_Chat_Bot_And_Data():
             "means, medians and quartiles. Anything beyond those tools relies on "
             "SQL I write myself, which is where I can go wrong. Compare against "
             "the **4. Results** tab. As more tools are added, this warning gets "
-            "shorter."
+            "shorter. My creators are working on enhancing my tools and conversational abilities."
         )
-    with st.chat_message("assistant"):
-        st.write(greeting_text)
-    
+    ## The greeting is not drawn here. This runs halfway down the page, so
+    ## drawing it here put it in the middle of the setup controls. The page
+    ## reruns as soon as the chat starts, and the conversation below draws it
+    ## from the history, in the right place.
     st.session_state["Chat_History"] = [{"role": "assistant", "content": greeting_text}]
 
     st.session_state["NAL_Chat_Bot"] = chat
@@ -6051,8 +6056,8 @@ else:
 
                 st.markdown('#####')
 
-                    
-                    
+                ## Everything in this block only draws while no chat is running,
+                ## so the button needs no condition of its own.
                 Build_Chat_Bot_Button = st.button('Start Chat!')
 
                 if Build_Chat_Bot_Button:
@@ -6068,7 +6073,7 @@ else:
                     ## not be held behind one. Somebody who chose Local
                     ## very likely has no key, and that is the point.
                     if using_local_engine() or _typed_key or _env_key:
-                        with st.spinner("Hold on Tight walking up the Chat Bot!"):
+                        with st.spinner("Hold on Tight waking up the Chat Bot!"):
                             response_container_Chat = st.empty()                                    
                             with response_container_Chat.container():
                                 progress_bar_Chat = st.columns([2,5,2])                                
@@ -6085,6 +6090,14 @@ else:
                                 st.session_state["Chat_Start_Problem"] = None
                                 Build_Chat_Bot_And_Data()
                                 response_container_Chat.empty()
+                        ## 🩹 Without this, the page kept showing the setup controls
+                        ## and the Start Chat button until the first question. Streamlit
+                        ## draws a page top to bottom, and this run had drawn them
+                        ## before the chat existed. Starting again draws the chat in
+                        ## its proper state at once. Only on success, so a problem
+                        ## message below stays on screen.
+                        if st.session_state["Chat_Launched"] is not None:
+                            st.rerun()
                     else:
                         st.warning(
                             'No Anthropic API key found. Put ANTHROPIC_API_KEY '
@@ -6099,42 +6112,51 @@ else:
                 if st.session_state["Chat_Start_Problem"]:
                     st.error(st.session_state["Chat_Start_Problem"])
 
-            if st.session_state["Chat_Launched"] is not None: 
-                 
+            if st.session_state["Chat_Launched"] is not None:
 
-                st.button('Clear Chat History'
-                          , on_click = Clear_Chat_History)
+                _clear_column, _over_column, _ = st.columns([1, 1, 4])
+                _clear_column.button('Clear Chat History'
+                                     , on_click = Clear_Chat_History)
+                _over_column.button('Start Over'
+                                    , help = "End this chat and choose where the assistant "
+                                             "runs again."
+                                    , on_click = Reset_Chat_Session)
 
-                st.button('Start Over'
-                          , help = "End this chat and choose where the assistant "
-                                   "runs again."
-                          , on_click = Reset_Chat_Session)
-                    
-                st.markdown('#####')
-                st.markdown('#####')
-                st.markdown('#####')
-                    
-
-
-                for message in st.session_state["Chat_History"] :
-                    with st.chat_message(message["role"]):
-                        st.markdown(message["content"])
+                ## 🩹 The conversation gets its own container, made BEFORE the
+                ## question box. Streamlit draws in the order the code reaches
+                ## things, and inside a tab the question box sits where it is
+                ## drawn rather than at the foot of the window. Drawing a new
+                ## question and its answer after the box put them below it, so
+                ## the box ended up between the old messages and the new ones.
+                ## Writing them into this container keeps every message above
+                ## the box, in order.
+                conversation = st.container()
+                with conversation:
+                    for message in st.session_state["Chat_History"] :
+                        with st.chat_message(message["role"]):
+                            st.markdown(message["content"])
 
                 # React to user input
-                if prompt := st.chat_input("What Would you like to know about your NAL?"):
-                    # Display user message in chat message container
-                    st.chat_message("user").markdown(prompt)
-                    # Add user message to chat history
-                    st.session_state["Chat_History"].append({"role": "user", "content": prompt})
+                if prompt := st.chat_input("What would you like to know about your NAL?"):
+                    with conversation:
+                        # Display user message in chat message container
+                        st.chat_message("user").markdown(prompt)
+                        # Add user message to chat history
+                        st.session_state["Chat_History"].append({"role": "user", "content": prompt})
 
-
-                    # Display assistant response in chat message container
-                    with st.chat_message("assistant"):
-                        response = st.write_stream(response_generator(prompt))
-                        if st.session_state["Display_Plot"] == 1:
-                            st.pyplot(st.session_state["Chat_Bot_Plot"])
-                    # Add assistant response to chat history
-                    st.session_state["Chat_History"].append({"role": "assistant", "content": response})
+                        # Display assistant response in chat message container
+                        with st.chat_message("assistant"):
+                            ## 🩹 The answer arrives in one piece, after the tools have
+                            ## run, so this bubble used to sit EMPTY for as long as that
+                            ## took - a minute or more on Local. An empty bubble looks
+                            ## broken, and asking again interrupts the answer still on
+                            ## its way. The spinner says it is working.
+                            with st.spinner("Looking that up in your roll..."):
+                                response = st.write_stream(response_generator(prompt))
+                            if st.session_state["Display_Plot"] == 1:
+                                st.pyplot(st.session_state["Chat_Bot_Plot"])
+                        # Add assistant response to chat history
+                        st.session_state["Chat_History"].append({"role": "assistant", "content": response})
 
                     
   

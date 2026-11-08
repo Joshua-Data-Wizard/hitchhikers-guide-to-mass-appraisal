@@ -15,13 +15,15 @@ shorter.
 
 ### What it cannot do yet
 
-- **PRB.** It is not in the app yet, while new standards are pending. The notebook reports it.
+- **VEI, the Vertical Equity Indicator.** It comes to the app once the IAAO's new standards are released.
+  It replaces PRB, which the IAAO is phasing out, so PRB will not be added. The notebook reports both.
 - **A ratio study for a property type you did not build a model for.** The sales table only holds the types
   you modelled.
 - **Scoring the model on the sales it trained on.** That is impossible on purpose, because it would flatter
   the model. The Results tab shows those figures in its Training column.
 - **Following up on an answer, on Local.** It remembers your earlier questions but not its own answers, so
-  *"explain that more simply"* will not work. Ask the question in full. Hosted does not have this limit.
+  *"explain that more simply"* will not work. Ask the question in full. Hosted does not have this limit. We aim
+  to address this in a future version.
 - **Legal, policy or appeal advice.** These are benchmark estimates.
 
 ## 📐 The ratio study matches the Results tab

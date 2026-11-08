@@ -516,6 +516,9 @@ def run_ratio_study(sales, compare = "", group_by = "", property_type = "",
     ## 🛑 PRB and PRD are one letter apart. Asked for PRB, a small model that had
     ## just been handed a PRD reported that instead. So the result says so, at the
     ## moment it is reading the figures.
-    blocks.append("PRB is not in these results. This app does not compute it, and "
-                  "PRD is a different statistic.")
+    ## No outside standard is named here: a model that reads one in a tool's
+    ## result reaches for that body's ranges from memory. FINDINGS §51.
+    blocks.append("PRB and VEI are not in these results. This app computes neither, "
+                  "and PRD is a different statistic. VEI, the Vertical Equity Indicator, "
+                  "replaces PRB, and it is planned for this app.")
     return "\n\n".join(blocks)

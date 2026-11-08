@@ -16,49 +16,32 @@
 ## 🙏 Permission and credit
 
 **Lee County, Florida has given permission for this data to be used in this
-repository.** This is a real, certified tax roll from a real county, and the
+repository.** This is a historical, certified tax roll from a real county, and the
 walkthrough works because they were generous enough to say yes. Thank you.
 
-The underlying records are **public** — Florida's NAL and SDF files are
-published annually through the Florida Department of Revenue, and county
-parcel geometry is published by the property appraiser's office. Permission
-was sought anyway, because asking is the right way to do this.
+The underlying records are **public**: the NAL, SDF and parcel geometry files come from the
+Florida Department of Revenue's [website](https://floridarevenue.com/property/Pages/DataPortal_RequestAssessmentRollGISData.aspx).
 
 The MIT license on this repository covers its code and writing. It does not cover these records,
 which are not ours to license.
 
-### ⚠️ Public does not mean careless
+If you present from this, please don't single out individual homes.
 
-These records describe **real people's homes**. If you fork this, build on it,
-or present from it:
-
-- Don't single out individual parcels or owners in slides, blog posts or
-  screenshots.
-- Don't join this to anything that re-identifies occupants.
-- Remember that an estimate attached to a real address is a statement about a
-  real household.
 
 ## 🧹 What we removed, and why
 
-The county's files list every parcel's **owner name and mailing address**, and those of any
+The roll's files list every parcel's **owner name and mailing address**, and those of any
 fiduciary. That is public information: the Department of Revenue publishes it, and anyone can
-download it. But nothing in this project uses it, and a public repository should not carry real
-people's names further than it has to. So these 14 columns are removed, from the NAL and from the
-shapefile's attribute table:
+download it. But the goal of this project is to learn how to use machine learning for valuation
+in mass appraisal, and these columns tell a model nothing useful, so they were removed. The
+exact list is at the top of `scripts/compress_data.py`, and in `data_manifest.json`.
 
-```
-OWN_NAME   OWN_ADDR1   OWN_ADDR2   OWN_CITY   OWN_STATE   OWN_ZIPCD   OWN_STATE_DOM
-FIDU_NAME  FIDU_ADDR1  FIDU_ADDR2  FIDU_CITY  FIDU_STATE  FIDU_ZIPCD  FIDU_CD
-```
-
-**Everything else is exactly as the county published it:** every row, and every other value,
+**Everything else is exactly as it was published:** every row, and every other value,
 character for character. The property's own address, `PHY_ADDR1`, stays, because it describes the
-land and the chat assistant uses it. Removing the columns changed no result in the notebook or the
-app, and that was checked rather than assumed: every metric, prediction and table was compared before
-and after.
+land and the chat assistant uses it.
 
 `scripts/compress_data.py` does the removal, and `data_manifest.json` records the checksum of each
-file as the county published it. So a copy of the full roll from the
+file as it was published. So a copy of the full roll from the
 [Department of Revenue's data portal](https://floridarevenue.com/property/dataportal/Pages/default.aspx?path=/property/dataportal/Documents/PTO%20Data%20Portal/Tax%20Roll%20Data%20Files)
 can be checked against it, and running the script on it gives these files exactly.
 
@@ -97,7 +80,7 @@ You get back exactly the files we packed, the county's less the owner columns, a
 
 ## 🧭 ⚠️ The shapefile has no projection file — and that matters
 
-**The shapefile as supplied by the county is missing its `.prj`.** Without it,
+**The shapefile as supplied by the Florida Department of Revenue is missing its `.prj`.** Without it,
 geopandas loads the geometry with `crs = None`, and anything that needs to know
 *where on Earth* those coordinates are will fail:
 
@@ -177,7 +160,7 @@ Median sale price in the holdout: **$399,990**.
 ## 🔄 Getting a fresher roll, or your own county
 
 Florida publishes NAL and SDF files annually through the **Department of
-Revenue**; parcel geometry comes from the **county property appraiser**. To
+Revenue**; parcel geometry comes from the **county property appraiser** or the **Florida Department of Revenue**. To
 point this notebook at a different roll:
 
 1. Drop the new files in `data/`.

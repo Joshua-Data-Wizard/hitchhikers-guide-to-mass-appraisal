@@ -24,7 +24,7 @@ and the shapefile's attribute table:
 stop at ten characters.) The property's own address, PHY_ADDR1 and PHY_ADDR2,
 stays. It describes the land, and the chat assistant uses it.
 
-Everything else stays exactly as the county published it, value for value:
+Everything else stays exactly as it was published, value for value:
 
   - The NAL is cut as raw text. Every line is split into its exact fields,
     quotes and all, the fourteen are dropped, and the rest are joined with the
@@ -65,7 +65,7 @@ packing the same file twice gives the same bytes.
 
 It also writes the missing .prj
 -------------------------------
-The shapefile Lee County supplied has **no .prj file**, so every tool that
+The shapefile as supplied has **no .prj file**, so every tool that
 opens it — geopandas, QGIS, ArcGIS — reports "no coordinate system" and
 refuses to reproject. The notebook works around it by hardcoding EPSG:2237.
 
