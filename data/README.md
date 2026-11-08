@@ -9,7 +9,7 @@
 > ```
 >
 > Nothing is downloaded — everything you need is already in your clone.
-> Takes under a minute and about 1.7 GB of disk.
+> Takes under a minute and about 1.4 GB of disk.
 
 ---
 
@@ -38,16 +38,40 @@ or present from it:
 - Remember that an estimate attached to a real address is a statement about a
   real household.
 
+## 🧹 What we removed, and why
+
+The county's files list every parcel's **owner name and mailing address**, and those of any
+fiduciary. That is public information: the Department of Revenue publishes it, and anyone can
+download it. But nothing in this project uses it, and a public repository should not carry real
+people's names further than it has to. So these 14 columns are removed, from the NAL and from the
+shapefile's attribute table:
+
+```
+OWN_NAME   OWN_ADDR1   OWN_ADDR2   OWN_CITY   OWN_STATE   OWN_ZIPCD   OWN_STATE_DOM
+FIDU_NAME  FIDU_ADDR1  FIDU_ADDR2  FIDU_CITY  FIDU_STATE  FIDU_ZIPCD  FIDU_CD
+```
+
+**Everything else is exactly as the county published it:** every row, and every other value,
+character for character. The property's own address, `PHY_ADDR1`, stays, because it describes the
+land and the chat assistant uses it. Removing the columns changed no result in the notebook or the
+app, and that was checked rather than assumed: every metric, prediction and table was compared before
+and after.
+
+`scripts/compress_data.py` does the removal, and `data_manifest.json` records the checksum of each
+file as the county published it. So a copy of the full roll from the
+[Department of Revenue's data portal](https://floridarevenue.com/property/dataportal/Pages/default.aspx?path=/property/dataportal/Documents/PTO%20Data%20Portal/Tax%20Roll%20Data%20Files)
+can be checked against it, and running the script on it gives these files exactly.
+
 ---
 
 ## 📦 What is in here
 
 | File | Compressed | Extracted | What it is |
 |---|---|---|---|
-| `NAL46F202501.csv.gz` | 47 MB | 272 MB | **Name · Address · Legal** — the tax roll. 557,813 parcels × 165 columns |
+| `NAL46F202501.csv.gz` | 32 MB | 229 MB | **Name · Address · Legal** — the tax roll. 557,813 parcels × 151 columns, owner names and addresses removed |
 | `SDF46F202501.csv.gz` | 3 MB | 18 MB | **Sales Data File** — 123,666 sales × 23 columns |
 | `lee_2025par.shp.gz` | 83 MB | 293 MB | parcel **geometry** — 559,141 polygons |
-| `lee_2025par.dbf.gz` | 64 MB | 1,084 MB | the shapefile's attribute table, 119 columns |
+| `lee_2025par.dbf.gz` | 45 MB | 865 MB | the shapefile's attribute table, 105 columns, owner names and addresses removed |
 | `lee_2025par.shx.gz` | 2 MB | 4 MB | the shapefile's index |
 | `lee_2025par.prj` | *committed plain* | — | the **projection definition** — see the warning below |
 | `data_manifest.json` | *committed plain* | — | sizes and SHA-256 checksums, used to verify the extract |
@@ -63,11 +87,11 @@ are over it, one by 11×. Gzip gets all five comfortably under, because
 fixed-width DBF records and comma-separated text repeat themselves enormously:
 
 ```
-raw total  1,671 MB   ->   committed  ~199 MB
+raw total  1,409 MB   ->   committed  ~165 MB
 ```
 
-You get the genuine county files back, byte for byte — `extract_data.py`
-verifies every one against a SHA-256 checksum.
+You get back exactly the files we packed, the county's less the owner columns, and
+`extract_data.py` verifies every one against a SHA-256 checksum.
 
 ---
 
@@ -111,7 +135,7 @@ a single coordinate. Your GIS department knows it.
 
 ## 📋 The columns you actually need
 
-The NAL file has 165 columns and the shapefile 119. The notebook explores them
+The NAL file has 151 columns and the shapefile 105, once the owner columns are out. The notebook explores them
 properly (the Vogons explain a few), but these are the ones the model is built
 from:
 
@@ -168,8 +192,9 @@ If you are the maintainer and want to re-pack a new roll for the repository:
 uv run python scripts/compress_data.py
 ```
 
-That rewrites the archives, the `.prj` and the manifest, and refuses to finish
-if any archive would exceed GitHub's 100 MB limit.
+That removes the owner columns, rebuilds any archive whose file changed, and writes the `.prj` and
+the manifest. It refuses to finish if an archive would exceed GitHub's 100 MB limit, or if an owner
+column survives.
 
 ---
 
@@ -183,7 +208,7 @@ if any archive would exceed GitHub's 100 MB limit.
 | **Files dated** | 2026-02-07 |
 | **Permission** | ✅ granted by Lee County, Florida |
 | **CRS as supplied** | none — no `.prj`. It is **EPSG:2237**, NAD83 / Florida West (ftUS) |
-| **Changes we made** | none to the data itself. We added a `.prj`, gzipped the files so they fit on GitHub, and recorded SHA-256 checksums |
+| **Changes we made** | removed the 14 owner name and mailing address columns, added a `.prj`, gzipped the files so they fit on GitHub, and recorded SHA-256 checksums, including each original's |
 
-**Nothing in these files has been altered, sampled or synthesised.** What you
-extract is what the county certified.
+**Apart from those 14 columns, nothing in these files has been altered, sampled or synthesised.**
+Every row, and every other value, is what the county certified.

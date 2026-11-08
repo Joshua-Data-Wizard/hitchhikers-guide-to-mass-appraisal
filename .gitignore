@@ -50,11 +50,11 @@ dist/
 # ─────────────────────────────────────────────────────────────────────────
 #  DATA — the big one. 🛑
 #
-#  Measured 2026-10-26, the full Lee County roll in data/ is 1.7 GB:
+#  Measured 2026-11-08, the Lee County roll in data/ is 1.4 GB, owner columns removed:
 #
-#      lee_2025par.dbf      1.1 GB     ❌ 11x GitHub's 100 MB file limit
-#      lee_2025par.shp      294 MB     ❌  3x
-#      NAL46F202501.csv     272 MB     ❌  3x
+#      lee_2025par.dbf      865 MB     ❌  9x GitHub's 100 MB file limit
+#      lee_2025par.shp      293 MB     ❌  3x
+#      NAL46F202501.csv     229 MB     ❌  2x
 #      SDF46F202501.csv      18 MB     ✅
 #      lee_2025par.shx      4.3 MB     ✅
 #
@@ -64,13 +64,13 @@ dist/
 #  So the EXTRACTED files are ignored, and the repo ships GZIPPED archives
 #  instead — every one of them under 100 MB:
 #
-#      NAL46F202501.csv.gz     47 MB     (5.8x)
+#      NAL46F202501.csv.gz     32 MB     (7.2x)
 #      SDF46F202501.csv.gz      3 MB     (5.6x)
-#      lee_2025par.dbf.gz      64 MB    (16.9x)
+#      lee_2025par.dbf.gz      45 MB    (19.3x)
 #      lee_2025par.shp.gz      83 MB     (3.5x)  <-- the tight one
-#      lee_2025par.shx.gz       2 MB     (2.3x)
+#      lee_2025par.shx.gz       2 MB     (2.2x)
 #                            ───────
-#                             ~199 MB committed, 1.7 GB on disk after extract
+#                             ~165 MB committed, 1.4 GB on disk after extract
 #
 #  A reader runs `uv run python scripts/extract_data.py` once, which writes
 #  the raw files below — and those are ignored, so they can never be

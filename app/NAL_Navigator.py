@@ -200,16 +200,16 @@ def find_sample_data():
 ## ── Reading a parcel shapefile without filling your RAM ─────────────────
 ##
 ## A county shapefile carries one attribute table row per parcel, and
-## counties put a LOT in it. Lee County's has 119 columns. We use exactly
+## counties put a LOT in it. Lee County's has 105 columns. We use exactly
 ## two of them: PARCEL_ID, to match against the roll, and the geometry,
 ## to get a point for each parcel.
 ##
-## Measured on the bundled file:
+## Measured on the bundled file, each read in a fresh process, 2026-11-08:
 ##
-##     all 119 columns      18.3 s   +1,097 MB of memory
-##     just PARCEL_ID        5.1 s     +169 MB
+##     all 105 columns      15.9 s   +957 MB of memory
+##     just PARCEL_ID        5.0 s   +430 MB
 ##
-## ⚠️ That 1.1 GB arrives while the 285 MB roll is ALREADY loaded. On a
+## ⚠️ That extra half a gigabyte arrives while the roll is ALREADY loaded. On a
 ## county laptop with 8 GB that is the difference between working and
 ## swapping. We are designing for that machine, not for a workstation.
 def read_parcel_shapes(shapefile_path):

@@ -28,7 +28,7 @@ Each one is here because of something that actually happened:
               terminal, and shipped a hardcoded username and password in its
               source. Neither is a thing you notice by reading 3,900 lines.
 
-  FILE SIZES  The raw Lee County taxroll is 1.67 GB, with three files over
+  FILE SIZES  The raw Lee County taxroll is about 1.4 GB, with three files over
               GitHub's 100 MB hard limit. A single `git add .` would have
               staged all of it and had the push rejected - after which the
               blobs live in local history and need surgery to remove.

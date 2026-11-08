@@ -1,5 +1,5 @@
 {
-  "dataset": "Lee County, Florida - 2025 certified tax roll",
+  "dataset": "Lee County, Florida - 2025 certified tax roll, owners' names and mailing addresses removed",
   "source_epsg": 2237,
   "note": "Unpack with: uv run python scripts/extract_data.py",
   "committed_plain": [
@@ -8,10 +8,27 @@
   "files": {
     "NAL46F202501.csv": {
       "archive": "NAL46F202501.csv.gz",
-      "raw_bytes": 284980140,
-      "archive_bytes": 49245321,
-      "raw_sha256": "0e9c816deb866cc888a61ceadea4a0194cb2aba1fac3311ccfbda607124abea9",
-      "archive_sha256": "fb667b5791dbe30465f569e5d564e4db6600815f2c1059bd27466253314d64a2"
+      "raw_bytes": 240118617,
+      "archive_bytes": 33326072,
+      "raw_sha256": "ff821f53bdb78097479b5593d9c02b7701137ced72bef2a9e750ba0d66b25b49",
+      "archive_sha256": "d76a3b672bf6d3399579b1babb14250b8f87f78214fe7901c2efe7952378c597",
+      "source_sha256": "0e9c816deb866cc888a61ceadea4a0194cb2aba1fac3311ccfbda607124abea9",
+      "removed_columns": [
+        "OWN_NAME",
+        "OWN_ADDR1",
+        "OWN_ADDR2",
+        "OWN_CITY",
+        "OWN_STATE",
+        "OWN_ZIPCD",
+        "OWN_STATE_DOM",
+        "FIDU_NAME",
+        "FIDU_ADDR1",
+        "FIDU_ADDR2",
+        "FIDU_CITY",
+        "FIDU_STATE",
+        "FIDU_ZIPCD",
+        "FIDU_CD"
+      ]
     },
     "SDF46F202501.csv": {
       "archive": "SDF46F202501.csv.gz",
@@ -36,10 +53,27 @@
     },
     "lee_2025par.dbf": {
       "archive": "lee_2025par.dbf.gz",
-      "raw_bytes": 1136737463,
-      "archive_bytes": 67122204,
-      "raw_sha256": "7ab9c562f4cc35a3de5247547f1d6afa3e1522d064ef45a7b01ac9f67abf75a9",
-      "archive_sha256": "e09494e0a2c1c3fc9427cc0cde786d3c59fdd577930c4f0062b3cea3df145e3b"
+      "raw_bytes": 906930064,
+      "archive_bytes": 46955215,
+      "raw_sha256": "8d0f4bceffc9e98056cc5d23da4a16a7f84b95fbce316a7542739904faa822a2",
+      "archive_sha256": "e3fff8c4034aced15fc1b8fa500a5859bbfbcbf9c0077c717ada2e2ab0dd2007",
+      "source_sha256": "7ab9c562f4cc35a3de5247547f1d6afa3e1522d064ef45a7b01ac9f67abf75a9",
+      "removed_columns": [
+        "OWN_NAME",
+        "OWN_ADDR1",
+        "OWN_ADDR2",
+        "OWN_CITY",
+        "OWN_STATE",
+        "OWN_ZIPCD",
+        "OWN_STATE_",
+        "FIDU_NAME",
+        "FIDU_ADDR1",
+        "FIDU_ADDR2",
+        "FIDU_CITY",
+        "FIDU_STATE",
+        "FIDU_ZIPCD",
+        "FIDU_CD"
+      ]
     }
   }
 }

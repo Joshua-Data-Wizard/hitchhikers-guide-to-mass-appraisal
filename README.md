@@ -79,7 +79,7 @@ minutes, and most of that is downloading.
 | **Python** | Nope. The next step brings its own. |
 | **Admin rights** | Nope. Everything installs inside your own user folder and this project's folder. |
 | **Graphics card** | Nope. Gradient boosting is a job for an ordinary processor. |
-| **Disk space** | About **3.5 GB** once everything is unpacked. |
+| **Disk space** | About **3.1 GB** once everything is unpacked. |
 | **Memory** | On Lee County, the app and the notebook each peak at about **5 GB**. The app settles at about 2 GB once its merge is done. On an 8 GB laptop, close what you can first. |
 | **Internet** | Only to install. After that, the valuation work runs with no connection. |
 
@@ -155,8 +155,8 @@ uv run python scripts/extract_data.py
 <details>
 <summary>Why does the data need unpacking?</summary>
 
-The tax roll is about **1.7 GB**, and GitHub refuses any file over 100 MB. So it ships
-gzipped at about 199 MB, and that script puts it back, byte for byte, checked against
+The tax roll is about **1.4 GB**, and GitHub refuses any file over 100 MB. So it ships
+gzipped at about 165 MB, and that script puts it back exactly, checked against
 SHA-256 checksums. **Nothing is downloaded.** It's already in the folder you just got.
 
 </details>
@@ -451,7 +451,9 @@ src/         deep_thought, the ratio statistics, in one place. It took a while
 ## 📦 The data
 
 It's real, certified and public: the **2025 Lee County, Florida** tax roll, with 557,813 parcels,
-123,666 sales and 559,141 parcel shapes.
+123,666 sales and 559,141 parcel shapes. **Owners' names and mailing addresses have been taken out.**
+Nothing here uses them, and [data/README.md](data/README.md#-what-we-removed-and-why) says exactly
+what was removed.
 
 **🙏 Lee County, Florida gave permission for this data to be used here.** The records are public, but
 permission was asked anyway, because asking is the right way to do this.

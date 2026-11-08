@@ -5,7 +5,7 @@ extract_data.py — unpack the Lee County taxroll. 🐬
 
 Run this ONCE after `uv sync`, before you open the notebook. It unpacks the
 compressed taxroll in data/ into the real CSV and shapefile the notebook
-reads. Takes well under a minute and about 1.7 GB of disk.
+reads. Takes well under a minute and about 1.4 GB of disk.
 
     uv run python scripts/extract_data.py --check    see what would happen
     uv run python scripts/extract_data.py --force    re-extract everything
@@ -15,9 +15,12 @@ reads. Takes well under a minute and about 1.7 GB of disk.
 DON'T PANIC — why isn't the data just sitting there?
 ----------------------------------------------------
 Because GitHub refuses any single file larger than 100 MB, and the raw roll
-is about 1.7 GB — the parcel attribute table alone (`lee_2025par.dbf`) is
-1.08 GB. So the repository stores the data gzipped, which fits comfortably,
-and this script puts it back byte for byte.
+is about 1.4 GB — the parcel attribute table alone (`lee_2025par.dbf`) is
+0.9 GB. So the repository stores the data gzipped, which fits comfortably,
+and this script puts it back exactly, checked against data_manifest.json.
+
+Owners' names and mailing addresses were removed before packing. See
+data/README.md for which columns, and why.
 
 Nothing is downloaded. Everything you need is already in your clone.
 
