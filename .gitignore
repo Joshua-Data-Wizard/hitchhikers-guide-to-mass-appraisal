@@ -1,0 +1,148 @@
+# ─────────────────────────────────────────────────────────────────────────
+#  hitchhikers-guide-to-mass-appraisal — .gitignore
+#
+#  ⚠️ READ THIS BEFORE ADDING A DIRECTORY TO THIS FILE.
+#
+#  Where we need to keep *some* files inside an otherwise-ignored folder,
+#  this file ignores `folder/*` and then re-includes with `!`.
+#
+#  It never ignores bare `folder/`, because **git does not descend into an
+#  excluded directory to re-include a file** — writing `data/` would make
+#  every `!data/...` line below silently dead.
+# ─────────────────────────────────────────────────────────────────────────
+
+
+# ── The environment ──────────────────────────────────────────────────────
+# `uv sync` rebuilds this from pyproject.toml + uv.lock in one command.
+# uv.lock IS committed; .venv/ never is.
+.venv/
+venv/
+env/
+
+
+# ── Python ───────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+
+
+# ── Jupyter ──────────────────────────────────────────────────────────────
+# Notebooks ARE committed with their outputs on purpose, so a
+# reader browsing GitHub can see what happens without running anything.
+# Only the checkpoint sidecars are ignored.
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/*
+
+
+# ── Secrets ──────────────────────────────────────────────────────────────
+# .env.example IS committed (it names the variables and holds no values).
+# .env never is.
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+
+
+# ─────────────────────────────────────────────────────────────────────────
+#  DATA — the big one. 🛑
+#
+#  Measured 2026-11-08, the Lee County roll in data/ is 1.4 GB, owner columns removed:
+#
+#      lee_2025par.dbf      865 MB     ❌  9x GitHub's 100 MB file limit
+#      lee_2025par.shp      293 MB     ❌  3x
+#      NAL46F202501.csv     229 MB     ❌  2x
+#      SDF46F202501.csv      18 MB     ✅
+#      lee_2025par.shx      4.3 MB     ✅
+#
+#  GitHub REJECTS any push containing a file over 100 MB. Stage these once
+#  and the blobs are in local history, which then needs surgery to remove.
+#
+#  So the EXTRACTED files are ignored, and the repo ships GZIPPED archives
+#  instead — every one of them under 100 MB:
+#
+#      NAL46F202501.csv.gz     32 MB     (7.2x)
+#      SDF46F202501.csv.gz      3 MB     (5.6x)
+#      lee_2025par.dbf.gz      45 MB    (19.3x)
+#      lee_2025par.shp.gz      83 MB     (3.5x)  <-- the tight one
+#      lee_2025par.shx.gz       2 MB     (2.2x)
+#                            ───────
+#                             ~165 MB committed, 1.4 GB on disk after extract
+#
+#  A reader runs `uv run python scripts/extract_data.py` once, which writes
+#  the raw files below — and those are ignored, so they can never be
+#  committed by accident.
+#
+#  Provenance and the Lee County permission are in data/README.md.
+# ─────────────────────────────────────────────────────────────────────────
+data/*
+
+# …but DO commit the archives, the projection file, and the docs.
+# Note the `data/*` + negation form, not bare `data/` — git never descends
+# into an excluded directory to re-include a file.
+!data/*.gz
+!data/data_manifest.json
+!data/lee_2025par.prj
+!data/README.md
+!data/sample/
+!data/.gitkeep
+
+# Belt and braces: never the extracted heavyweights, even if a rule above
+# is loosened later.
+data/*.csv
+data/*.dbf
+data/*.shp
+data/*.shx
+data/*.partial
+
+
+# ── VS Code ──────────────────────────────────────────────────────────────
+# settings.json and extensions.json are committed on purpose so the repo
+# opens correctly without anyone registering a Jupyter kernel.
+# Note the `.vscode/*` + negation form — see the warning at the top.
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+
+# ── Model / tuning artifacts ─────────────────────────────────────────────
+# Regenerable, and large. Nothing here is a source file.
+*.db-journal
+optuna*.db
+*.pkl
+*.joblib
+*.txt.model
+catboost_info/
+mlruns/
+.cache/
+
+# The app writes its own working files here - the small SQLite database the
+# chat assistant queries, rebuilt every time you press Start Chat. Safe to
+# delete; nothing in it cannot be regenerated.
+app_workspace/
+hf_cache/
+models/
+
+
+# ── OS / editor noise ────────────────────────────────────────────────────
+Thumbs.db
+ehthumbs.db
+desktop.ini
+.DS_Store
+*.swp
+*~
+
+# ── Windows reserved device names ────────────────────────────────────────
+# matplotlib's savefig(os.devnull) appends an extension, so on Windows it
+# creates a file literally called "nul.png". "nul" is a reserved DOS device
+# name, so the result is a file git cannot index and ordinary tools cannot
+# delete - you need the \?\ extended-path prefix to remove it.
+# Ignoring the pattern stops a stray one blocking a commit.
+nul
+nul.*
+con.*
+prn.*
+aux.*

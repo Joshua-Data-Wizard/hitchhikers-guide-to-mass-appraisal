@@ -1,0 +1,273 @@
+# ─────────────────────────────────────────────────────────────────────────
+#  hitchhikers-guide-to-mass-appraisal — project manifest
+#
+#  DON'T PANIC. 🐬  You do not need Python installed to use this.
+#
+#  Setup, start to finish, is one command:
+#
+#      uv sync
+#
+#  That installs Python 3.12, creates .venv/, resolves every package below,
+#  and installs them. Then:
+#
+#      uv run jupyter lab                    # the walkthrough
+#      uv run streamlit run app/<app>.py     # the app
+#
+#  ── The division of labour between two files ──────────────────────────
+#
+#  THIS file says WHAT WE WANT  — loose floors, and the reason for each.
+#  uv.lock  says WHAT WE GOT    — exact versions, committed, so that every
+#                                 reader ends up with identical packages.
+#
+#  ⛔ Never run `pip install` in this project. Add the package here, run
+#     `uv sync`, and commit the updated uv.lock. Otherwise your environment
+#     drifts from everyone else's and nobody can reproduce your numbers.
+#
+#  Get uv: https://docs.astral.sh/uv/getting-started/installation/
+# ─────────────────────────────────────────────────────────────────────────
+
+[project]
+name = "deep-thought"
+version = "0.1.0"
+description = "A Hitchhiker's Guide to mass appraisal valuation — gradient boosting, explained"
+readme = "README.md"
+license = { text = "MIT" }
+
+# 3.12, deliberately, not 3.13+.
+#
+# Widest wheel availability across the gradient-boosting and SHAP stack, and
+# for a teaching repository "boring and works everywhere" beats "current."
+# `.python-version` pins the same number, and uv installs it for you.
+requires-python = ">=3.12"
+
+dependencies = [
+    # ── Data handling ────────────────────────────────────────────────────
+    # The two libraries every line of the walkthrough rests on.
+    #
+    # ⚠️ pandas 3.x is a MAJOR version with real behaviour changes: a true
+    # string dtype instead of `object`, and Copy-on-Write by default. The
+    # notebook leans on `.astype('str')` for CENSUS_BK / NBRHD_CD / MKT_AR
+    # and builds its `kfold` column with `.loc[subset, 'kfold'] = fold`, so
+    # both changes touch it. We are deliberately on 3.x and testing it
+    # rather than pinning back on a guess — if something breaks, this floor
+    # becomes `>=2.2,<3` and the reason gets written here.
+    "pandas>=2.2",
+    "numpy>=2.1",
+
+    # ── Geography ────────────────────────────────────────────────────────
+    # Parcels are shapes on the ground, and location is the strongest
+    # predictor of value there is. This is how we get from a county
+    # shapefile to a latitude and longitude the model can use.
+    "geopandas>=1.0",
+    "pyproj>=3.7",            # coordinate transforms; Florida State Plane -> WGS84
+    #
+    # geopandas 1.x reads through pyogrio by default. Declared explicitly so
+    # `uv sync` cannot produce an install where reading a shapefile depends
+    # on which optional engine happened to come along.
+    "pyogrio>=0.10",
+    #
+    # Both of these are needed by `GeoDataFrame.explore()` — the interactive
+    # map in the notebook. The notebook's own comment says "THIS WILL
+    # REQUIRE folium and mapclassify"; declaring them here is what makes
+    # that cell work instead of raising for a reader who uncomments it.
+    "folium>=0.19",
+    "mapclassify>=2.8",
+
+    # ── The models ───────────────────────────────────────────────────────
+    # Three gradient boosting libraries, because the walkthrough compares
+    # them head to head rather than asserting a winner.
+    "lightgbm>=4.6",          # the primary model; fast, handles categoricals
+    "xgboost>=3.0",           # the Restaurant at the End of the Algorithm
+    "catboost>=1.2.7",        # the Babel Fish — native categorical handling
+
+    # scikit-learn supplies the split, the OrdinalEncoder, GridSearchCV and
+    # HalvingRandomSearchCV. It is also a hard requirement of `transformers`
+    # at module import, so it stays in core even though the SLM extra is
+    # what needs it there.
+    "scikit-learn>=1.6",
+
+    # ── Hyperparameter tuning ────────────────────────────────────────────
+    # ⚠️ optuna 5.x is a major version. The notebook calls
+    # `optuna.visualization.plot_terminator_improvement`, which was an
+    # EXPERIMENTAL API — verify it survived before trusting that cell.
+    "optuna>=4.0",
+
+    # ── Explaining the model ─────────────────────────────────────────────
+    # The Point of View Gun. SHAP is what turns "the computer said
+    # $412,000" into a line-item receipt an appraiser can defend, and it is
+    # the single most important library here for our audience.
+    "shap>=0.46",
+    #
+    # statsmodels supplies LOWESS, used to smooth the SHAP age curve into
+    # something that looks like a depreciation table.
+    "statsmodels>=0.14",
+    "scipy>=1.14",
+
+    # ── IAAO ratio statistics ────────────────────────────────────────────
+    # COD, PRD, PRB and VEI — the statistics an assessor is actually judged
+    # on. R² means nothing to a board of equalization; a COD of 13 means a
+    # great deal.
+    #
+    # This is the maintainer's own package. Using it rather than
+    # re-deriving the formulas means there is ONE implementation of COD in
+    # the project instead of several that can drift apart.
+    "pyRealEstate>=0.2.1",
+
+    # ── Visualisation ────────────────────────────────────────────────────
+    "matplotlib>=3.9",
+    "seaborn>=0.13",          # ⚠️ last released Jan 2024; pandas-3 pairing untested
+    "plotly>=6.0",            # `px.scatter_map` (NOT the removed scatter_mapbox)
+    "altair>=5.4",            # the app's charts
+
+    # ── The app ──────────────────────────────────────────────────────────
+    "streamlit>=1.40",
+    "streamlit-lottie>=0.0.5",  # the loading animations
+    "requests>=2.32",           # fetches those animations
+    "psutil>=6.0",              # process info in the app's footer
+    #
+    # 🛑 `keyboard` is DELIBERATELY ABSENT, and must stay absent.
+    #
+    # The original app imported it to synthesize one `ctrl+w` keystroke in a
+    # "quit" button, left over from packaging this as a desktop .exe. It was
+    # last released 2020-03-23, it installs a global low-level keyboard hook
+    # that often needs admin rights on Windows, and it sends that keystroke
+    # to whatever window has focus — not necessarily the browser.
+    #
+    # We assume a county IT laptop with no guaranteed admin rights, and we
+    # are asking county IT departments to approve this repo. A
+    # keylogger-shaped dependency fails both tests. Stop the app with Ctrl+C.
+
+    # ── Hosted language model (the API variant of the chatbot) ───────────
+    # Small, well-documented SDK; the call site is about ten readable lines.
+    "anthropic>=0.60",
+    #
+    # Reads the API key from .env so nobody has to paste a secret into a
+    # text box on every rerun. See .env.example.
+    "python-dotenv>=1.0",
+
+    # ── Running the notebook ─────────────────────────────────────────────
+    # Committed here so that `uv sync` is genuinely the only setup step.
+    # Note what is NOT here: any instruction to run
+    # `ipykernel install --user`. That writes a kernel registration into
+    # your Windows profile, outside this repo, where it outlives the
+    # project and clutters a list nobody prunes. `.vscode/settings.json`
+    # points VS Code at `.venv/` instead, so the environment is visible in
+    # this project and nowhere else.
+    "ipykernel>=6.29",
+    "jupyterlab>=4.2",
+    #
+    # ipywidgets is here for one specific reason: without it, the very first
+    # import cell prints a warning.
+    #
+    # `tqdm` (pulled in by shap, optuna and others) checks whether it is
+    # running inside a Jupyter kernel. If it is, it wants ipywidgets so it can
+    # draw a real progress bar — and if ipywidgets is absent it warns, then
+    # falls back to plain text:
+    #
+    #     TqdmWarning: IProgress not found. Please update jupyter and ipywidgets.
+    #
+    # Nothing is broken when that happens. But it is the SECOND thing a reader
+    # ever sees in this notebook, directly under the cell that loads the
+    # libraries, and "warning" on line one of a tutorial is a bad first
+    # impression. Installing it costs about a megabyte and buys working
+    # progress bars for the slower SHAP cells.
+    #
+    # Note it only warns inside a kernel — run the same imports in a plain
+    # Python process and tqdm falls back silently, which is why this is easy
+    # to miss when testing from a script.
+    "ipywidgets>=8.1",
+]
+
+
+# ─────────────────────────────────────────────────────────────────────────
+#  OPTIONAL EXTRA — the local small-language-model path
+#
+#      uv sync --extra slm
+#
+#  Why this is an extra and not a core dependency:
+#
+#  torch with the CUDA 13 wheel is roughly 2.5-3 GB. The main lesson of
+#  this repository is GRADIENT BOOSTING, which is pure CPU and needs none
+#  of it. Making every reader download 3 GB before they can run the first
+#  cell is the opposite of "clone it and get it running."
+#
+#  ⚠️ THE NOTEBOOK DOES NOT NEED THIS. It is entirely about valuation and
+#  imports no language-model libraries itself. 🩹 One Optuna chart needs
+#  torch behind the scenes, so that cell checks first and skips itself on a
+#  plain `uv sync`. Found by running the notebook on a fresh clone.
+#  This extra exists for the APP's local-model chatbot variant, which runs a
+#  small language model on your own machine with no data leaving the
+#  building — for an assessor's office, often the only version that is
+#  permitted at all.
+#
+#  So `uv sync` on its own gives you the entire valuation walkthrough plus
+#  the hosted-API chatbot, and most readers never need this extra.
+# ─────────────────────────────────────────────────────────────────────────
+[project.optional-dependencies]
+slm = [
+    # The numerical engine. Routed to the CUDA 13 index below on Windows and
+    # Linux; macOS gets the ordinary PyPI build, which uses Metal.
+    "torch>=2.14",
+
+    # Loads and runs the local model in the app's chat tab.
+    "transformers>=5.0",
+
+    # Device placement and low-memory loading. Without this, a 4B model
+    # loads entirely into RAM before it ever reaches the GPU.
+    "accelerate>=1.0",
+
+    # 4-bit quantisation. Qwen3.5-4B in bf16 wants ~8 GB of VRAM, which is
+    # exactly the floor we design to — quantised it fits in ~2.5 GB and
+    # leaves room for the rest of the demo.
+    #
+    # >=0.50 is REQUIRED: it is the first release with CUDA 13 support on
+    # Windows.
+    "bitsandbytes>=0.50",
+]
+
+
+# ─────────────────────────────────────────────────────────────────────────
+#  uv configuration
+# ─────────────────────────────────────────────────────────────────────────
+[tool.uv]
+
+# ⛔ NON-NEGOTIABLE. Do not remove this line.
+#
+# uv hardlinks packages from its cache into .venv/ by default, because it
+# is faster and saves disk. Hardlinks DO NOT WORK on cloud-synced folders
+# — OneDrive, Dropbox, Google Drive — or on many network shares. `uv sync`
+# dies with:
+#
+#       os error 396
+#
+# and nothing in that message tells you why. A repo in
+# OneDrive\Documents\GitHub is exactly where this lands for most people,
+# including the maintainer, so this is not a hypothetical.
+#
+# Cost: a few hundred MB of extra disk and a slightly slower install.
+# Benefit: `uv sync` works no matter where the repo lives.
+link-mode = "copy"
+
+# This project is a workspace of notebooks and apps, not an installable
+# library — there is no `src/` package to build. Without this, uv looks for
+# a build backend and fails.
+package = false
+
+
+# ── The CUDA 13 wheel index (for the `slm` extra) ────────────────────────
+#
+# PyPI's default torch wheel is CPU-only on Windows. The real GPU builds
+# live on PyTorch's own index, and `explicit = true` means uv pulls ONLY
+# the packages we route here from it — everything else still comes from
+# PyPI.
+#
+# Verified 2026-10-26: this index carries torch 2.14.1 for cp312/win_amd64.
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cu130", marker = "sys_platform == 'win32' or sys_platform == 'linux'" },
+]

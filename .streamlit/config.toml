@@ -1,0 +1,39 @@
+[server]
+maxUploadSize = 500
+
+## Listen on this computer only. By default Streamlit listens on the whole network, so unless
+## a firewall stops them, others in the office could open this app by its address: the roll,
+## the Shut Down button, and the chat with whatever API key it has loaded. Measured from this
+## computer: its network address answered with the default, and refused with this line. An
+## office that wants to share one copy can
+## choose that on purpose, with `--server.address 0.0.0.0` on the run command.
+address = "localhost"
+
+## The first time anyone runs Streamlit it stops in the terminal and asks for an email
+## address, for "onboarding emails, news, offers, promotions". That is the very first
+## thing a new reader would meet, and on a county laptop it invites a work address.
+showEmailPrompt = false
+
+## ⚠️ Turn Streamlit's file watcher OFF.
+##
+## By default Streamlit walks every imported module looking for changes so
+## it can offer "Source file changed - Rerun". That is a nice thing in a
+## small script and a real problem here: the optional `slm` extra pulls in
+## `torch` and `transformers`, which are thousands of files, and the
+## watcher traverses them on every rerun. On a OneDrive-synced folder -
+## which is where this repo lands for most readers - it is slower still.
+##
+## Nothing is lost by turning it off. A reader editing the app restarts it
+## with the same `uv run streamlit run` command they already used.
+fileWatcherType = "none"
+
+## Streamlit sends anonymous usage statistics by default. This app promises a
+## county that the Local assistant keeps its data in the building, so it
+## should not be phoning anywhere it does not need to.
+[browser]
+gatherUsageStats = false
+
+## Hides Streamlit's "Deploy" button, which invites publishing the app to the internet.
+## This app holds a tax roll, and nothing about using it needs that button in view.
+[client]
+toolbarMode = "minimal"
