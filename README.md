@@ -25,13 +25,14 @@
 
 ---
 
-> *In the beginning the tax roll was created. This has made a lot of people very angry
-> and been widely regarded as a bad move.*
+Mass appraisal in Florida faces a lot of challenges, and the largest is creating a new value
+for every property as of January 1st each year. Assessors need to make sure those values are
+fair and equitable. The gold standard for this has been building regression models, but
+ordinary least squares regression makes linear assumptions and can struggle with
+collinearity. To help overcome this, and to create value predictions with high levels of
+fairness and equity, machine learning can be leveraged!
 
-Mass appraisal is slow to adopt new technology. Not because the people are slow, but
-because of funding, fear of the unknown, and genuinely not knowing where to start.
-
-**This is where to start.** It is a give-back to the community: a way for an individual
+**This is where we start.** It is a give-back to the community: a way for an individual
 assessor to see what machine learning can do for valuation, and to try it on data they
 recognise. You don't need to be an engineer, you don't need to already know Python, and
 you don't need a graphics card. A towel is recommended but not enforced.
@@ -47,7 +48,7 @@ There are two things in the box:
 >
 > **Everything this produces is a benchmark estimate.** It is not an assessment, not a
 > defensible value, and not evidence in an appeal. Please don't paste it into a notice of
-> value. An assessor who does that has been failed by this page, so this page is saying so.
+> value. 
 >
 > The goal is something to **benchmark your own values against**, and a safe place to
 > dabble. It is **not** an attempt to build the best values ever produced.
@@ -376,8 +377,7 @@ line. It's quick the second time.
 **This is a concept, not a finished product. Please check its figures on anything complicated.**
 It has been checked on a list of questions, which is under **What can I ask it?** on the tab, and
 the ratio study matches the Results tab to four decimals. Outside those tools it's relying on SQL
-a language model wrote for itself, and that's where things can go wrong. It also doesn't compute
-PRB yet.
+a language model wrote for itself, and that's where things can go wrong.
 
 The memory and speed of the local model, what it can't do and why, and how to check it yourself,
 are all in **[docs/chat_assistant.md](docs/chat_assistant.md)**.
@@ -424,7 +424,7 @@ The notebook goes the whole way, including the parts that usually get skipped:
 - Hyperparameter tuning from manual, to grid search, to **Optuna**, including **HPO leakage**, where
   tuning against your test set quietly flatters the result
 - **Cross-validation**, and what an odd fold is actually telling you
-- **IAAO ratio statistics** (COD, PRD, PRB), not just R². A board of equalization has never asked
+- **IAAO ratio statistics** (COD, PRD, PRB and VEI), not just R². A board of equalization has never asked
   anyone for an R²
 - **SHAP**, to turn "the computer said $412,000" into a line-item receipt, and to pull a depreciation
   curve straight out of the model
@@ -450,17 +450,13 @@ src/         deep_thought, the ratio statistics, in one place. It took a while
 
 ## 📦 The data
 
-It's real, certified and public: the **2025 Lee County, Florida** tax roll, with 557,813 parcels,
+It's a real, certified, historical tax roll from **Lee County, Florida**: 557,813 parcels,
 123,666 sales and 559,141 parcel shapes. **Owners' names and mailing addresses have been taken out.**
 Nothing here uses them, and [data/README.md](data/README.md#-what-we-removed-and-why) says exactly
 what was removed.
 
-**🙏 Lee County, Florida gave permission for this data to be used here.** The records are public, but
+**🙏 Lee County, Florida graciously gave permission for this data to be used here.** The records are public, but
 permission was asked anyway, because asking is the right way to do this.
-
-⚠️ **These records describe real people's homes.** Please read
-**[data/README.md](data/README.md)**, which covers where the data came from and what every column means
-in appraisal terms.
 
 ---
 
@@ -471,7 +467,7 @@ page were tested from a fresh download on Windows 11. It's held to a high bar an
 rough edges, so
 [please tell us about them](https://github.com/Joshua-Data-Wizard/hitchhikers-guide-to-mass-appraisal/issues).
 
-**What's coming:** PRB in the app once the IAAO's new standards land, and more tools for the assistant.
+**What's coming:** VEI in the app once the IAAO's new standards land, and more tools for the assistant.
 
 ## 📄 License
 

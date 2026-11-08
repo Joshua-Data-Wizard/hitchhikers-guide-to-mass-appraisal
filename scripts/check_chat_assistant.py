@@ -451,13 +451,35 @@ def _percentage_is_real(written, values):
     return False
 
 
+def attributes_a_range_to_the_iaao(answer):
+    """Does a sentence credit the IAAO with a range or standard?
+
+    Negated mentions are the right answer, not the wrong one: "these are this
+    office's own rules, not a published IAAO standard" once failed the older,
+    word-near-word version of this check, which could not tell the difference.
+    """
+    text = answer.lower()
+    for match in re.finditer(r"iaao", text):
+        start = max(text.rfind(".", 0, match.start()), text.rfind("\n", 0, match.start())) + 1
+        ends = [i for i in (text.find(".", match.end()), text.find("\n", match.end())) if i != -1]
+        sentence = text[start:min(ends) if ends else len(text)]
+        if not re.search(r"range|target|standard|acceptable", sentence):
+            continue
+        if re.search(r"\b(not|no|nor|never|rather than|instead of|isn't|aren't|doesn't|does not)\b",
+                     text[start:match.start()]):
+            continue
+        return True
+    return False
+
+
 def unexplained(answer, allowed):
     """Numbers in the answer that nothing we know of can account for."""
     pool = list(allowed) + list(ALWAYS_ALLOWED)
     found = []
 
-    # "4.600441 x 10^5" is a way of writing 460,044, not a new number.
-    answer = re.sub(r"\d(?:\.\d+)?\s*\S?\s*10\^\d+", " ", answer)
+    # "4.600441 x 10^5" is a way of writing 460,044, not a new number. So is
+    # "4.600441 × 10⁵", with a superscript, which is how Haiku wrote it once.
+    answer = re.sub(r"\d(?:\.\d+)?\s*\S?\s*10(?:\^\d+|[⁰¹²³⁴⁵⁶⁷⁸⁹]+)", " ", answer)
     answer = re.sub(r"\d(?:\.\d+)?e[+-]?\d+", " ", answer, flags=re.IGNORECASE)
 
     in_answer = [float(_bare(w)) for w in numbers_written(answer)]
@@ -853,7 +875,11 @@ def run_battery(engine, keep_history=False):
         ("What is the COD in Boca Grande?", warns_about_a_small_group),
         ("What is the PRB for this roll?",
          must_decline(("not computed", "cannot", "can't", "does not compute", "doesn't compute",
-                       "not in these results", "do not have", "don't have"))),
+                       "not in these results", "do not have", "don't have", "computes neither"))),
+        # VEI replaces PRB, so it is the one a reader is now told to expect.
+        ("What is the VEI for this roll?",
+         must_decline(("not computed", "cannot", "can't", "does not compute", "doesn't compute",
+                       "not in these results", "do not have", "don't have", "computes neither"))),
         # Passing the held-out figure off as the training one is the failure this
         # is here for, and that answer never says it cannot. Mentioning the
         # held-out figure as itself, after declining, is good manners.
@@ -883,8 +909,7 @@ def run_battery(engine, keep_history=False):
         print("  Q: %s" % ascii_only(question))
         answer, tools = ask(at, question, keep_history)
         verdict = check(answer)
-        if re.search(r"iaao[^.\n]{0,60}(range|target|standard|acceptable)"
-                     r"|(range|target|standard|acceptable)[^.\n]{0,60}iaao", answer.lower()):
+        if attributes_a_range_to_the_iaao(answer):
             verdict = "WRONG - it attributed a range to the IAAO"
         if re.search(r"</?tool_call>|</?function[=>]|</?parameter[=>]|\[looked up with", answer, re.I):
             verdict = "BROKEN - tool markup reached the reader"
