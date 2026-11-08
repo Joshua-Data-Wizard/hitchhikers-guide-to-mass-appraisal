@@ -25,9 +25,6 @@
 
 ---
 
-> *In the beginning the tax roll was created. This has made a lot of people very angry
-> and been widely regarded as a bad move.*
-
 Mass appraisal in Florida faces a lot of challenges, and the largest is creating a new value
 for every property as of January 1st each year. Assessors need to make sure those values are
 fair and equitable. The gold standard for this has been building regression models, but
